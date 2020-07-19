@@ -13,13 +13,45 @@
 	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 	See the License for the specific language governing permissions and
 	limitations under the License.
+
+
+
+	detail::print_floating and detail::print_exponent are adapted from _ftoa and _etoa
+	from https://github.com/mpaland/printf, which is licensed under the MIT license,
+	reproduced below:
+
+	Copyright Marco Paland (info@paland.com), 2014-2019, PALANDesign Hannover, Germany
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in
+	all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+	THE SOFTWARE.
 */
+
 
 /*
 	Version History
 	---------------
-	1.0.0 - 19/07/2020
-	Initial release.
+	1.2.0 - 20/07/2020
+	Use floating-point printer from mpaland/printf, letting us actually beat printf in all cases.
+
+
+	1.1.1 - 20/07/2020
+	Don't include unistd.h
+
 
 	1.1.0 - 20/07/2020
 	Performance improvements: switched to tuple-based arguments instead of parameter-packed recursion. We are now (slightly)
@@ -28,8 +60,11 @@
 
 	Bug fixes: fixed broken escaping of {{ and }}.
 
-	1.1.1 - 20/07/2020
-	Don't include unistd.h
+
+	1.0.0 - 19/07/2020
+	Initial release.
+
+
 
 
 	Documentation
@@ -63,15 +98,16 @@
 	- floating point types      (float, double, long double)
 	- strings                   (char*, const char*, std::string_view, std::string)
 	- booleans                  (prints as 'true'/'false')
-	- chars
-	- all iterable containers   (with begin(x) and end(x) available)
-	- enums                     (will print as their integer representation)
-	- std::pair
 	- void*, const void*        (prints with %p)
+	- chars                     (char)
+	- enums                     (will print as their integer representation)
+	- std::pair                 (prints as "{ first, second }")
+	- all iterable containers   (with begin(x) and end(x) available -- prints as "[ a, b, ..., c ]")
 */
 
 #include <cmath>
 #include <cstdio>
+#include <cfloat>
 #include <cstring>
 
 #include <string>
@@ -265,6 +301,386 @@ namespace zpr
 		}
 
 
+		template <typename CallbackFn>
+		size_t print_string(CallbackFn&& cb, const char* str, size_t len, format_args args)
+		{
+			int64_t string_length = 0;
+			int64_t abs_field_width = std::abs(args.width);
+
+			if(args.precision >= 0) string_length = std::min(args.precision, static_cast<int64_t>(len));
+			else                    string_length = static_cast<int64_t>(len);
+
+			size_t ret = string_length;
+			auto padding_width = abs_field_width - string_length;
+
+			if(args.width >= 0 && padding_width > 0)
+				cb(' ', padding_width), ret += padding_width;
+
+			cb(str, string_length);
+
+			if(args.width < 0 && padding_width > 0)
+				cb(' ', padding_width), ret += padding_width;
+
+			return ret;
+		}
+
+		template <typename CallbackFn>
+		size_t print_special_floating(CallbackFn&& cb, double value, format_args args)
+		{
+			if(value != value)
+				return print_string(cb, "nan", 3, std::move(args));
+
+			if(value < -DBL_MAX)
+				return print_string(cb, "-inf", 4, std::move(args));
+
+			if(value > DBL_MAX)
+			{
+				return print_string(cb, args.prepend_plus_if_positive
+					? "+inf" : args.prepend_blank_if_positive
+					? " inf" : "inf",
+					args.prepend_blank_if_positive || args.prepend_plus_if_positive ? 4 : 3,
+					std::move(args)
+				);
+			}
+
+			return 0;
+		}
+
+
+		// forward declare this.
+		template <typename CallbackFn>
+		size_t print_floating(CallbackFn&& cb, double value, format_args args);
+
+
+		template <typename CallbackFn>
+		size_t print_exponent(CallbackFn&& cb, double value, format_args args)
+		{
+			constexpr int DEFAULT_PRECISION = 6;
+
+			// check for NaN and special values
+			if((value != value) || (value > DBL_MAX) || (value < -DBL_MAX))
+				return print_special_floating(cb, value, std::move(args));
+
+			int prec = (args.precision == -1 ? DEFAULT_PRECISION : static_cast<int>(args.precision));
+			int abs_field_width = std::abs(args.width);
+
+			bool use_precision = (args.precision != -1);
+			bool use_zero_pad = args.zero_pad && 0 <= args.width && !use_precision;
+			bool use_left_pad = !use_zero_pad && 0 <= args.width;
+			bool use_right_pad = !use_zero_pad && args.width < 0;
+
+			// determine the sign
+			const bool negative = (value < 0);
+			if(negative)
+				value = -value;
+
+			// determine the decimal exponent
+			// based on the algorithm by David Gay (https://www.ampl.com/netlib/fp/dtoa.c)
+			union {
+				uint64_t U;
+				double F;
+			} conv;
+
+			conv.F = value;
+			auto exp2 = static_cast<int64_t>((conv.U >> 52U) & 0x07FFU) - 1023; // effectively log2
+			conv.U = (conv.U & ((1ULL << 52U) - 1U)) | (1023ULL << 52U);        // drop the exponent so conv.F is now in [1,2)
+
+			// now approximate log10 from the log2 integer part and an expansion of ln around 1.5
+			auto expval = static_cast<int64_t>(0.1760912590558 + exp2 * 0.301029995663981 + (conv.F - 1.5) * 0.289529654602168);
+
+			// now we want to compute 10^expval but we want to be sure it won't overflow
+			exp2 = static_cast<int64_t>(expval * 3.321928094887362 + 0.5);
+
+			const double z = expval * 2.302585092994046 - exp2 * 0.6931471805599453;
+			const double z2 = z * z;
+
+			conv.U = static_cast<uint64_t>(exp2 + 1023) << 52U;
+
+			// compute exp(z) using continued fractions, see https://en.wikipedia.org/wiki/Exponential_function#Continued_fractions_for_ex
+			conv.F *= 1 + 2 * z / (2 - z + (z2 / (6 + (z2 / (10 + z2 / 14)))));
+
+			// correct for rounding errors
+			if(value < conv.F)
+			{
+				expval--;
+				conv.F /= 10;
+			}
+
+			// the exponent format is "%+02d" and largest value is "307", so set aside 4-5 characters
+			int minwidth = (-100 < expval && expval < 100) ? 2U : 3U;
+
+			// in "%g" mode, "prec" is the number of *significant figures* not decimals
+			if(args.specifier == 'g' || args.specifier == 'G')
+			{
+				// do we want to fall-back to "%f" mode?
+				if((value >= 1e-4) && (value < 1e6))
+				{
+					if(static_cast<int64_t>(prec) > expval)
+						prec = static_cast<uint64_t>(static_cast<int64_t>(prec) - expval - 1);
+
+					else
+						prec = 0;
+
+					args.precision = prec;
+
+					// no characters in exponent
+					minwidth = 0;
+					expval = 0;
+				}
+				else
+				{
+					// we use one sigfig for the whole part
+					if(prec > 0 && use_precision)
+						prec -= 1;
+				}
+			}
+
+			// will everything fit?
+			uint64_t fwidth = abs_field_width;
+			if(abs_field_width > minwidth)
+			{
+				// we didn't fall-back so subtract the characters required for the exponent
+				fwidth -= minwidth;
+			}
+			else
+			{
+				// not enough characters, so go back to default sizing
+				fwidth = 0;
+			}
+
+			if(use_left_pad && minwidth)
+			{
+				// if we're padding on the right, DON'T pad the floating part
+				fwidth = 0;
+			}
+
+			// rescale the float value
+			if(expval)
+				value /= conv.F;
+
+			// output the floating part
+			const size_t start_idx = 0;
+			args.width = fwidth;
+
+			auto len = print_floating(cb, negative ? -value : value, std::move(args));
+
+			// output the exponent part
+			if(minwidth > 0)
+			{
+				len++;
+				if(args.specifier & 0x20)   cb('e');
+				else                        cb('E');
+
+				// output the exponent value
+				char tmp[8] = { 0 };
+				size_t digits_len = 0;
+				auto ret = std::to_chars(&tmp[0], &tmp[8], static_cast<int64_t>(std::abs(expval)));
+
+				if(ret.ec == std::errc())   digits_len = (ret.ptr - &tmp[0]), *ret.ptr = 0;
+				else                        digits_len = 1, tmp[0] = '?';
+
+				len += digits_len;
+				cb(expval < 0 ? '-' : '+');
+
+				// zero-pad to minwidth - 1
+				if(auto tmp = static_cast<int64_t>(minwidth - 1) - static_cast<int64_t>(digits_len - 1); tmp > 0)
+					len += tmp, cb('0', tmp);
+
+				cb(tmp, digits_len);
+
+				// might need to right-pad spaces
+				if(use_right_pad && abs_field_width > len)
+					cb(' ', abs_field_width - len), len = abs_field_width;
+			}
+
+			return len;
+		}
+
+
+		template <typename CallbackFn>
+		size_t print_floating(CallbackFn&& cb, double value, format_args args)
+		{
+			constexpr int DEFAULT_PRECISION = 6;
+			constexpr size_t MAX_BUFFER_LEN = 128;
+			constexpr long double EXPONENTIAL_CUTOFF = 1e15;
+
+			char buf[MAX_BUFFER_LEN] = { 0 };
+
+			size_t len = 0;
+			double diff = 0.0;
+
+			int abs_field_width = std::abs(args.width);
+			int prec = (args.precision == -1 ? DEFAULT_PRECISION : static_cast<int>(args.precision));
+
+			bool use_precision = (args.precision != -1);
+			bool use_zero_pad = args.zero_pad && 0 <= args.width && !use_precision;
+			bool use_left_pad = !use_zero_pad && 0 <= args.width;
+			bool use_right_pad = !use_zero_pad && args.width < 0;
+
+			// powers of 10
+			constexpr double pow10[] = {
+				1,
+				10,
+				100,
+				1000,
+				10000,
+				100000,
+				1000000,
+				10000000,
+				100000000,
+				1000000000,
+				10000000000,
+				100000000000,
+				1000000000000,
+				10000000000000,
+				100000000000000,
+				1000000000000000,
+				10000000000000000,
+			};
+
+			// test for special values
+			if((value != value) || (value > DBL_MAX) || (value < -DBL_MAX))
+				return print_special_floating(cb, value, std::move(args));
+
+			// switch to exponential for large values.
+			if((value > EXPONENTIAL_CUTOFF) || (value < -EXPONENTIAL_CUTOFF))
+				return print_exponent(cb, value, std::move(args));
+
+			// test for negative
+			const bool negative = (value < 0);
+			if(value < 0)
+				value = -value;
+
+			// limit precision to 9, cause a prec >= 10 can lead to overflow errors
+			while((len < MAX_BUFFER_LEN) && (prec > 16))
+			{
+				buf[len++] = '0';
+				prec--;
+			}
+
+			auto whole = static_cast<int64_t>(value);
+			auto tmp = (value - whole) * pow10[prec];
+			auto frac = static_cast<unsigned long>(tmp);
+
+			diff = tmp - frac;
+
+			if(diff > 0.5)
+			{
+				frac += 1;
+
+				// handle rollover, e.g. case 0.99 with prec 1 is 1.0
+				if(frac >= pow10[args.precision])
+				{
+					frac = 0;
+					whole += 1;
+				}
+			}
+			else if(diff < 0.5)
+			{
+				// ?
+			}
+			else if((frac == 0U) || (frac & 1U))
+			{
+				// if halfway, round up if odd OR if last digit is 0
+				frac += 1;
+			}
+
+			if(args.precision == 0U)
+			{
+				diff = value - static_cast<double>(whole);
+				if((!(diff < 0.5) || (diff > 0.5)) && (whole & 1))
+				{
+					// exactly 0.5 and ODD, then round up
+					// 1.5 -> 2, but 2.5 -> 2
+					whole += 1;
+				}
+			}
+			else
+			{
+				auto count = prec;
+
+				// now do fractional part, as an unsigned number
+				while(len < MAX_BUFFER_LEN)
+				{
+					count -= 1;
+					buf[len++] = static_cast<char>('0' + (frac % 10));
+
+					if(!(frac /= 10))
+						break;
+				}
+
+				// add extra 0s
+				while((len < MAX_BUFFER_LEN) && (count-- > 0))
+					buf[len++] = '0';
+
+				// add decimal
+				if(len < MAX_BUFFER_LEN)
+					buf[len++] = '.';
+			}
+
+			// do whole part, number is reversed
+			while(len < MAX_BUFFER_LEN)
+			{
+				buf[len++] = static_cast<char>('0' + (whole % 10));
+				if(!(whole /= 10))
+					break;
+			}
+
+			// pad leading zeros
+			if(use_zero_pad)
+			{
+				auto width = abs_field_width;
+
+				if(width != 0 && (negative || args.prepend_plus_if_positive || args.prepend_blank_if_positive))
+					width--;
+
+				while((len < width) && (len < MAX_BUFFER_LEN))
+					buf[len++] = '0';
+			}
+
+			if(len < MAX_BUFFER_LEN)
+			{
+				if(negative)
+					buf[len++] = '-';
+
+				else if(args.prepend_plus_if_positive)
+					buf[len++] = '+'; // ignore the space if the '+' exists
+
+				else if(args.prepend_blank_if_positive)
+					buf[len++] = ' ';
+			}
+
+			// reverse it.
+			for(size_t i = 0; i < len / 2; i++)
+				std::swap(buf[i], buf[len - i - 1]);
+
+			auto padding_width = std::max(int64_t(0), abs_field_width - static_cast<int64_t>(len));
+
+			if(use_left_pad)
+				cb(' ', padding_width);
+
+			cb(buf, len);
+
+			if(use_right_pad)
+				cb(' ', padding_width);
+
+			return len + ((use_left_pad || use_right_pad) ? padding_width : 0);
+		}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -309,53 +725,81 @@ namespace zpr
 
 					if(width && prec)
 					{
-						visit_three(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
-							[](auto&& cb, format_args fmt_args, auto&& width, auto&& prec, auto&& x) {
-								if constexpr (std::is_integral_v<decltype(width)> && std::is_integral_v<decltype(prec)>)
-								{
-									fmt_args.width = width;
-									fmt_args.precision = prec;
-								}
+						if constexpr (std::tuple_size_v<Tuple> >= 3)
+						{
+							visit_three(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
+								[](auto&& cb, format_args fmt_args, auto&& width, auto&& prec, auto&& x) {
+									if constexpr (std::is_integral_v<decltype(width)> && std::is_integral_v<decltype(prec)>)
+									{
+										fmt_args.width = width;
+										fmt_args.precision = prec;
+									}
 
-								print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
-									.print(std::move(x), cb, std::move(fmt_args));
-							});
+									print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
+										.print(std::move(x), cb, std::move(fmt_args));
+								});
+						}
+						else
+						{
+							cb("<missing width and prec>");
+						}
 
 						tup_idx += 3;
 					}
 					else if(width)
 					{
-						visit_two(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
-							[](auto&& cb, format_args fmt_args, auto&& width, auto&& x) {
-								if constexpr (std::is_integral_v<decltype(width)>)
-									fmt_args.width = width;
+						if constexpr (std::tuple_size_v<Tuple> >= 2)
+						{
+							visit_two(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
+								[](auto&& cb, format_args fmt_args, auto&& width, auto&& x) {
+									if constexpr (std::is_integral_v<decltype(width)>)
+										fmt_args.width = width;
 
-								print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
-									.print(std::move(x), cb, std::move(fmt_args));
-							});
+									print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
+										.print(std::move(x), cb, std::move(fmt_args));
+								});
+						}
+						else
+						{
+							cb("<missing width>");
+						}
 
 						tup_idx += 2;
 					}
 					else if(prec)
 					{
-						visit_two(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
-							[](auto&& cb, format_args fmt_args, auto&& prec, auto&& x) {
-								if constexpr (std::is_integral_v<decltype(prec)>)
-									fmt_args.precision = prec;
+						if constexpr (std::tuple_size_v<Tuple> >= 2)
+						{
+							visit_two(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
+								[](auto&& cb, format_args fmt_args, auto&& prec, auto&& x) {
+									if constexpr (std::is_integral_v<decltype(prec)>)
+										fmt_args.precision = prec;
 
-								print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
-									.print(std::move(x), cb, std::move(fmt_args));
-							});
+									print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
+										.print(std::move(x), cb, std::move(fmt_args));
+								});
+						}
+						else
+						{
+							cb("<missing prec>");
+						}
 
 						tup_idx += 2;
 					}
 					else
 					{
-						visit_one(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
-							[](auto&& cb, format_args fmt_args, auto&& x) {
-								print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
-									.print(std::move(x), cb, std::move(fmt_args));
-							});
+						if constexpr (std::tuple_size_v<Tuple> >= 1)
+						{
+							visit_one(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
+								[](auto&& cb, format_args fmt_args, auto&& x) {
+									print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
+										.print(std::move(x), cb, std::move(fmt_args));
+								});
+						}
+						else
+						{
+							cb("<missing value>");
+						}
 
 						tup_idx += 1;
 					}
@@ -655,60 +1099,11 @@ namespace zpr
 		template <typename CallbackFn>
 		void print(T x, CallbackFn&& cb, format_args args)
 		{
-			constexpr int default_prec = 6;
+			if(args.specifier == 'e' || args.specifier == 'E')
+				print_exponent(cb, x, std::move(args));
 
-			char buf[128] = { 0 };
-			int64_t num_length = 0;
-
-			// lmao. nobody except msvc stl (and only the most recent version) implements std::to_chars
-			// for floating point types, even though it's in the c++17 standard. so we just cheat.
-			// let printf handle the precision, but we'll handle the width and the negativity.
-			{
-				const char* fmt_str = 0;
-				constexpr bool ldbl = std::is_same_v<T, long double>;
-				constexpr bool dbl  = std::is_same_v<T, double>;
-
-				switch(args.specifier)
-				{
-					case 'E': fmt_str = (ldbl ? "%.*LE" : (dbl ? "%.*lE" : "%.*E")); break;
-					case 'e': fmt_str = (ldbl ? "%.*Le" : (dbl ? "%.*le" : "%.*e")); break;
-					case 'F': fmt_str = (ldbl ? "%.*LF" : (dbl ? "%.*lF" : "%.*F")); break;
-					case 'f': fmt_str = (ldbl ? "%.*Lf" : (dbl ? "%.*lf" : "%.*f")); break;
-					case 'G': fmt_str = (ldbl ? "%.*LG" : (dbl ? "%.*lG" : "%.*G")); break;
-
-					case 'g': [[fallthrough]];
-					default:  fmt_str = (ldbl ? "%.*Lg" : (dbl ? "%.*lg" : "%.*g")); break;
-				}
-
-				num_length = snprintf(&buf[0], 128, fmt_str, (int) (args.precision == -1 ? default_prec : args.precision),
-					std::fabs(x));
-			}
-
-			auto abs_field_width = std::abs(args.width);
-
-			bool use_zero_pad = args.zero_pad && args.width >= 0;
-			bool use_left_pad = !use_zero_pad && args.width >= 0;
-			bool use_right_pad = !use_zero_pad && args.width < 0;
-
-			// account for the signs, if any.
-			if(x < 0 || args.prepend_plus_if_positive || args.prepend_blank_if_positive)
-				num_length += 1;
-
-			int64_t padding_width = abs_field_width - num_length;
-			if(padding_width < 0) { use_left_pad = false; use_right_pad = false; use_zero_pad = false; }
-
-			char prefix = 0;
-			if(x < 0)                               prefix = '-';
-			else if(args.prepend_plus_if_positive)  prefix = '+';
-			else if(args.prepend_blank_if_positive) prefix = ' ';
-
-			if(use_left_pad)  cb(' ', padding_width);
-			if(prefix != 0)   cb(prefix);
-			if(use_zero_pad)  cb('0', padding_width);
-
-			cb(buf, num_length);
-
-			if(use_right_pad) cb(' ', padding_width);
+			else
+				print_floating(cb, x, std::move(args));
 		}
 	};
 
@@ -725,19 +1120,7 @@ namespace zpr
 		template <typename CallbackFn>
 		void print(T x, CallbackFn&& cb, format_args args)
 		{
-			int64_t string_length = 0;
-			int64_t abs_field_width = std::abs(args.width);
-
-			if(args.precision >= 0) string_length = std::min(args.precision, static_cast<int64_t>(strlen(x)));
-			else                    string_length = static_cast<int64_t>(strlen(x));
-
-			if(args.width >= 0 && string_length < abs_field_width)
-				cb(' ', abs_field_width - string_length);
-
-			cb(x, string_length);
-
-			if(args.width < 0 && string_length < abs_field_width)
-				cb(' ', abs_field_width - string_length);
+			detail::print_string(cb, x, strlen(x), std::move(args));
 		}
 	};
 
@@ -751,19 +1134,7 @@ namespace zpr
 		template <typename CallbackFn>
 		void print(const T& x, CallbackFn&& cb, format_args args)
 		{
-			int64_t string_length = 0;
-			int64_t abs_field_width = std::abs(args.width);
-
-			if(args.precision >= 0) string_length = std::min(args.precision, static_cast<int64_t>(x.size()));
-			else                    string_length = static_cast<int64_t>(x.size());
-
-			if(args.width >= 0 && string_length < abs_field_width)
-				cb(' ', abs_field_width - string_length);
-
-			cb(x, string_length);
-
-			if(args.width < 0 && string_length < abs_field_width)
-				cb(' ', abs_field_width - string_length);
+			detail::print_string(cb, x.c_str(), x.size(), std::move(args));
 		}
 	};
 
