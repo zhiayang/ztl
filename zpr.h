@@ -28,6 +28,9 @@
 
 	Bug fixes: fixed broken escaping of {{ and }}.
 
+	1.1.1 - 20/07/2020
+	Don't include unistd.h
+
 
 	Documentation
 	-------------
@@ -66,8 +69,6 @@
 	- std::pair
 	- void*, const void*        (prints with %p)
 */
-
-#include <unistd.h>
 
 #include <cmath>
 #include <cstdio>
