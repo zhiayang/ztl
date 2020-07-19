@@ -21,6 +21,13 @@
 	1.0.0 - 19/07/2020
 	Initial release.
 
+	1.1.0 - 20/07/2020
+	Performance improvements: switched to tuple-based arguments instead of parameter-packed recursion. We are now (slightly)
+	faster than printf (as least on two of my systems) as long as no floating-point is involved. (for now we are still forced
+	to call snprintf to print floats... charconv pls)
+
+	Bug fixes: fixed broken escaping of {{ and }}.
+
 
 	Documentation
 	-------------
@@ -49,23 +56,31 @@
 
 
 	The currently supported builtin formatters are:
-	- integral types (signed/unsigned char/short/int/long/long long) (but not 'char')
-	- floating point types (float, double, long double)
-	- strings (char*, const char*, std::string_view, std::string)
-	- booleans (prints as 'true'/'false')
+	- integral types            (signed/unsigned char/short/int/long/long long) (but not 'char')
+	- floating point types      (float, double, long double)
+	- strings                   (char*, const char*, std::string_view, std::string)
+	- booleans                  (prints as 'true'/'false')
 	- chars
-	- all iterable containers (with begin(x) and end(x) available)
-	- enums (will print as their integer representation)
+	- all iterable containers   (with begin(x) and end(x) available)
+	- enums                     (will print as their integer representation)
 	- std::pair
+	- void*, const void*        (prints with %p)
 */
+
+#include <unistd.h>
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 #include <string>
 #include <charconv>
 #include <type_traits>
 #include <string_view>
+
+#ifndef HEX_0X_RESPECTS_UPPERCASE
+	#define HEX_0X_RESPECTS_UPPERCASE 0
+#endif
 
 namespace zpr
 {
@@ -113,88 +128,7 @@ namespace zpr
 			decltype(end(std::declval<T&>()))
 		>> : std::true_type { };
 
-
-		// forward declare these
-		template <typename CallbackFn>
-		void print(CallbackFn&& cb, const char* fmt);
-
-		template <typename CallbackFn, typename... Args>
-		void print(CallbackFn&& cb, const char* fmt, Args&&... args);
-
-
-
-		template <typename CallbackFn, typename... Args>
-		void consume_wp(CallbackFn&& cb, format_args fmt_args, const char* fmt, Args&&... args)
-		{
-			cb("<missing width and precision>");
-			return print(cb, fmt, args...);
-		}
-
-		template <typename CallbackFn, typename W, typename P, typename Arg, typename... Args>
-		void consume_wp(CallbackFn&& cb, format_args fmt_args, const char* fmt, W&& width, P&& prec, Arg&& arg, Args&&... args)
-		{
-			static_assert(std::is_integral_v<std::remove_reference_t<std::decay_t<W>>>);
-			static_assert(std::is_integral_v<std::remove_reference_t<std::decay_t<P>>>);
-
-			fmt_args.width = width;
-			fmt_args.precision = prec;
-			print_formatter<std::remove_cv_t<std::decay_t<Arg>>>().print(std::move(arg), cb, std::move(fmt_args));
-			return print(cb, fmt, args...);
-		}
-
-		template <typename CallbackFn, typename... Args>
-		void consume_w(CallbackFn&& cb, format_args fmt_args, const char* fmt, Args&&... args)
-		{
-			cb("<missing width>");
-			return print(cb, fmt, args...);
-		}
-
-		template <typename CallbackFn, typename W, typename Arg, typename... Args>
-		void consume_w(CallbackFn&& cb, format_args fmt_args, const char* fmt, W&& width, Arg&& arg, Args&&... args)
-		{
-			static_assert(std::is_integral_v<std::remove_reference_t<std::decay_t<W>>>);
-
-			fmt_args.width = width;
-			print_formatter<std::remove_cv_t<std::decay_t<Arg>>>().print(std::move(arg), cb, std::move(fmt_args));
-			return print(cb, fmt, args...);
-		}
-
-		template <typename CallbackFn, typename... Args>
-		void consume_p(CallbackFn&& cb, format_args fmt_args, const char* fmt, Args&&... args)
-		{
-			cb("<missing precision>");
-			return print(cb, fmt, args...);
-		}
-
-		template <typename CallbackFn, typename P, typename Arg, typename... Args>
-		void consume_p(CallbackFn&& cb, format_args fmt_args, const char* fmt, P&& prec, Arg&& arg, Args&&... args)
-		{
-			static_assert(std::is_integral_v<std::remove_reference_t<std::decay_t<P>>>);
-
-			fmt_args.precision = prec;
-			print_formatter<std::remove_cv_t<std::decay_t<Arg>>>().print(std::move(arg), cb, std::move(fmt_args));
-			return print(cb, fmt, args...);
-		}
-
-		template <typename CallbackFn, typename... Args>
-		void consume_0(CallbackFn&& cb, format_args fmt_args, const char* fmt, Args&&... args)
-		{
-			cb("<missing value>");
-			return print(cb, fmt, args...);
-		}
-
-		template <typename CallbackFn, typename Arg, typename... Args>
-		void consume_0(CallbackFn&& cb, format_args fmt_args, const char* fmt, Arg&& arg, Args&&... args)
-		{
-			print_formatter<std::remove_cv_t<std::decay_t<Arg>>>().print(std::move(arg), cb, std::move(fmt_args));
-			return print(cb, fmt, args...);
-		}
-
-
-
-
-		template <typename CallbackFn, typename... Args>
-		void print_next(std::string_view sv, CallbackFn&& cb, const char* fmt, Args&&... args)
+		static inline std::tuple<format_args, bool, bool> parse_fmt_spec(std::string_view sv)
 		{
 			// remove the first and last (they are { and })
 			sv = sv.substr(1, sv.size() - 2);
@@ -203,7 +137,6 @@ namespace zpr
 			bool need_width = false;
 			format_args fmt_args = { };
 			{
-
 				bool negative_width = false;
 				while(sv.size() > 0)
 				{
@@ -231,9 +164,11 @@ namespace zpr
 				}
 				else
 				{
-					while(sv.size() > 0 && (sv[0] >= '0') && (sv[0] <= '9'))
-						(fmt_args.width = 10 * fmt_args.width + (sv[0] - '0')), sv.remove_prefix(1);
+					size_t k = 0;
+					while(sv.size() > k && (sv[k] >= '0') && (sv[k] <= '9'))
+						(fmt_args.width = 10 * fmt_args.width + (sv[k] - '0')), k++;
 
+					sv.remove_prefix(k);
 					if(negative_width)
 						fmt_args.width *= -1;
 				}
@@ -253,53 +188,97 @@ namespace zpr
 					else if(sv.size() > 0 && sv[0] == '-')
 					{
 						// just ignore negative precision i guess.
-						while(sv.size() > 0 && ('0' <= sv[0]) && (sv[0] <= '9'))
-							sv.remove_prefix(1);
+						size_t k = 1;
+						while(sv.size() > k && ('0' <= sv[k]) && (sv[k] <= '9'))
+							k++;
+
+						sv.remove_prefix(k);
 					}
 					else
 					{
 						fmt_args.precision = 0;
-						while(sv.size() > 0 && (sv[0] >= '0') && (sv[0] <= '9'))
-							(fmt_args.precision = 10 * fmt_args.precision + (sv[0] - '0')), sv.remove_prefix(1);
+
+						size_t k = 0;
+						while(sv.size() > k && (sv[k] >= '0') && (sv[k] <= '9'))
+							(fmt_args.precision = 10 * fmt_args.precision + (sv[k] - '0')), k++;
+
+						sv.remove_prefix(k);
 					}
 				}
 
 				if(!sv.empty())
 					(fmt_args.specifier = sv[0]), sv.remove_prefix(1);
-
-			done:
-				;
 			}
 
-			if(need_prec && need_width)
-			{
-				return consume_wp(cb, std::move(fmt_args), fmt, args...);
-			}
-			else if(need_width)
-			{
-				return consume_w(cb, std::move(fmt_args), fmt, args...);
-			}
-			else if(need_prec)
-			{
-				return consume_p(cb, std::move(fmt_args), fmt, args...);
-			}
-			else
-			{
-				return consume_0(cb, std::move(fmt_args), fmt, args...);
-			}
+		done:
+			return { fmt_args, need_width, need_prec };
 		}
 
-		template <typename CallbackFn>
-		void print(CallbackFn&& cb, const char* fmt)
+		template <typename CallbackFn, typename Fn, typename Tuple, size_t N = 0>
+		void visit_one(CallbackFn&& cb, Tuple&& args, size_t idx, format_args fmt_args, Fn&& fn)
 		{
-			cb(fmt);
+			if(N == idx)
+			{
+				fn(cb, std::move(fmt_args), std::move(std::get<N>(args)));
+				return;
+			}
+
+			if constexpr (N + 1 < std::tuple_size_v<Tuple>)
+				return visit_one<CallbackFn, Fn, Tuple, N + 1>(std::forward<CallbackFn>(cb), std::forward<Tuple>(args),
+					idx, std::move(fmt_args), std::forward<Fn>(fn));
 		}
 
-		template <typename CallbackFn, typename... Args>
-		void print(CallbackFn&& cb, const char* fmt, Args&&... args)
+		template <typename CallbackFn, typename Fn, typename Tuple, size_t N = 0>
+		void visit_two(CallbackFn&& cb, Tuple&& args, size_t idx, format_args fmt_args, Fn&& fn)
+		{
+			if(N == idx)
+			{
+				fn(cb, std::move(fmt_args),
+					std::move(std::get<N>(args)),
+					std::move(std::get<N + 1>(args))
+				);
+				return;
+			}
+
+			if constexpr (N + 2 < std::tuple_size_v<Tuple>)
+				return visit_two<CallbackFn, Fn, Tuple, N + 1>(std::forward<CallbackFn>(cb), std::forward<Tuple>(args),
+					idx, std::move(fmt_args), std::forward<Fn>(fn));
+		}
+
+		template <typename CallbackFn, typename Fn, typename Tuple, size_t N = 0>
+		void visit_three(CallbackFn&& cb, Tuple&& args, size_t idx, format_args fmt_args, Fn&& fn)
+		{
+			if(N == idx)
+			{
+				fn(cb, std::move(fmt_args),
+					std::move(std::get<N>(args)),
+					std::move(std::get<N + 1>(args)),
+					std::move(std::get<N + 2>(args))
+				);
+				return;
+			}
+
+			if constexpr (N + 3 < std::tuple_size_v<Tuple>)
+				return visit_three<CallbackFn, Fn, Tuple, N + 1>(std::forward<CallbackFn>(cb), std::forward<Tuple>(args),
+					idx, std::move(fmt_args), std::forward<Fn>(fn));
+		}
+
+
+
+
+
+
+
+
+
+
+		template <typename CallbackFn, typename Tuple>
+		void print(CallbackFn&& cb, const char* fmt, Tuple&& args)
 		{
 			auto beg = fmt;
 			auto end = fmt;
+
+			size_t tup_idx = 0;
 
 			while(end && *end)
 			{
@@ -308,15 +287,15 @@ namespace zpr
 					auto tmp = end;
 
 					// flush whatever we have first:
-					cb(std::string_view(beg, end - beg));
+					cb(beg, end);
 					if(end[1] == '{')
 					{
-						cb("{");
+						cb('{');
 						end += 2;
+						beg = end;
 						continue;
 					}
 
-					std::string_view fmt_str;
 					while(end[0] && end[0] != '}')
 						end++;
 
@@ -325,87 +304,230 @@ namespace zpr
 						return;
 
 					end++;
+					auto [ fmt_spec, width, prec ] = parse_fmt_spec(std::string_view(tmp, end - tmp));
 
-					return print_next(std::string_view(tmp, end - tmp), cb, end, args...);
+					if(width && prec)
+					{
+						visit_three(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
+							[](auto&& cb, format_args fmt_args, auto&& width, auto&& prec, auto&& x) {
+								if constexpr (std::is_integral_v<decltype(width)> && std::is_integral_v<decltype(prec)>)
+								{
+									fmt_args.width = width;
+									fmt_args.precision = prec;
+								}
+
+								print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
+									.print(std::move(x), cb, std::move(fmt_args));
+							});
+
+						tup_idx += 3;
+					}
+					else if(width)
+					{
+						visit_two(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
+							[](auto&& cb, format_args fmt_args, auto&& width, auto&& x) {
+								if constexpr (std::is_integral_v<decltype(width)>)
+									fmt_args.width = width;
+
+								print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
+									.print(std::move(x), cb, std::move(fmt_args));
+							});
+
+						tup_idx += 2;
+					}
+					else if(prec)
+					{
+						visit_two(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
+							[](auto&& cb, format_args fmt_args, auto&& prec, auto&& x) {
+								if constexpr (std::is_integral_v<decltype(prec)>)
+									fmt_args.precision = prec;
+
+								print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
+									.print(std::move(x), cb, std::move(fmt_args));
+							});
+
+						tup_idx += 2;
+					}
+					else
+					{
+						visit_one(cb, std::forward<Tuple>(args), tup_idx, std::move(fmt_spec),
+							[](auto&& cb, format_args fmt_args, auto&& x) {
+								print_formatter<std::remove_cv_t<std::decay_t<decltype(x)>>>()
+									.print(std::move(x), cb, std::move(fmt_args));
+							});
+
+						tup_idx += 1;
+					}
+
+					beg = end;
 				}
 				else if(*end == '}')
 				{
+					cb(beg, end);
+
 					// well... we don't need to escape }, but for consistency, we accept either } or }} to print one }.
 					if(end[1] == '}')
 						end++;
 
 					end++;
-					cb("}");
+					cb('}');
+					beg = end;
 				}
 				else
 				{
 					end++;
 				}
 			}
+
+			// flush
+			cb(beg, end);
 		}
+
+
+
+		struct appender
+		{
+			appender(std::string& buf) : buf(buf) { }
+
+			void operator() (char c) { this->buf += c; }
+			void operator() (std::string_view sv) { this->buf += sv; }
+			void operator() (char c, size_t n) { this->buf.resize(this->buf.size() + n, c); }
+			void operator() (const char* begin, const char* end) { this->buf.append(begin, end); }
+			void operator() (const char* begin, size_t len) { this->buf.append(begin, begin + len); }
+
+			appender(appender&&) = delete;
+			appender(const appender&) = delete;
+			appender& operator= (appender&&) = delete;
+			appender& operator= (const appender&) = delete;
+
+		private:
+			std::string& buf;
+		};
+
+		template <size_t Limit, bool Newline>
+		struct appender2
+		{
+			appender2(FILE* fd, size_t& written) : fd(fd), written(written) { }
+			~appender2() { flush(true); }
+
+			appender2(appender2&&) = delete;
+			appender2(const appender2&) = delete;
+			appender2& operator= (appender2&&) = delete;
+			appender2& operator= (const appender2&) = delete;
+
+			void operator() (char c) { *ptr++ = c; flush(); }
+
+			void operator() (std::string_view sv) { (*this)(sv.data(), sv.size()); }
+			void operator() (const char* begin, const char* end) { (*this)(begin, static_cast<size_t>(end - begin)); }
+
+			void operator() (char c, size_t n)
+			{
+				while(n > 0)
+				{
+					auto x = std::min(n, remaining());
+					memset(ptr, c, x);
+					ptr += x;
+					n -= x;
+					flush();
+				}
+			}
+
+			void operator() (const char* begin, size_t len)
+			{
+				while(len > 0)
+				{
+					auto x = std::min(len, remaining());
+					memcpy(ptr, begin, x);
+					ptr += x;
+					begin += x;
+					len -= x;
+
+					flush();
+				}
+			}
+
+		private:
+			inline size_t remaining()
+			{
+				return Limit - (ptr - buf);
+			}
+
+			inline void flush(bool last = false)
+			{
+				if(!last && ptr - buf < Limit)
+					return;
+
+				fwrite(buf, sizeof(char), ptr - buf, fd);
+				written += ptr - buf;
+
+				if(last && Newline)
+					written++, fputc('\n', fd);
+
+				ptr = buf;
+			}
+
+			FILE* fd = 0;
+
+			char buf[Limit];
+			char* ptr = &buf[0];
+			size_t& written;
+		};
+
+
+		constexpr size_t STDIO_BUFFER_SIZE = 256;
 	}
+
+
+
 
 	template <typename... Args>
 	std::string sprint(const char* fmt, Args&&... args)
 	{
-		std::string str;
+		std::string buf;
+		detail::print(detail::appender(buf), fmt, std::forward<Args>(args)...);
 
-		detail::print([&str](std::string_view sv) {
-			str += sv;
-		}, fmt, args...);
-
-		return str;
+		return buf;
 	}
-
-
-
-
 
 	template <typename... Args>
 	size_t print(const char* fmt, Args&&... args)
 	{
-		size_t n = 0;
-		detail::print([&n](std::string_view sv) {
-			n += printf("%.*s", (int) sv.size(), sv.data());
-		}, fmt, args...);
+		size_t ret = 0;
+		detail::print(detail::appender2<detail::STDIO_BUFFER_SIZE, false>(stdout, ret),
+			fmt, std::forward<Args>(args)...);
 
-		return n;
+		return ret;
 	}
 
 	template <typename... Args>
 	size_t println(const char* fmt, Args&&... args)
 	{
-		size_t n = 0;
-		detail::print([&n](std::string_view sv) {
-			n += printf("%.*s", (int) sv.size(), sv.data());
-		}, fmt, args...);
+		size_t ret = 0;
+		detail::print(detail::appender2<detail::STDIO_BUFFER_SIZE, true>(stdout, ret),
+			fmt, std::forward<Args>(args)...);
 
-		printf("\n");
-		return n + 1;
+		return ret;
 	}
 
 
 	template <typename... Args>
 	size_t fprint(FILE* file, const char* fmt, Args&&... args)
 	{
-		size_t n = 0;
-		detail::print([&n, file](std::string_view sv) {
-			n += fprintf(file, "%.*s", (int) sv.size(), sv.data());
-		}, fmt, args...);
+		size_t ret = 0;
+		detail::print(detail::appender2<detail::STDIO_BUFFER_SIZE, false>(file, ret),
+			fmt, std::forward_as_tuple(args...));
 
-		return n;
+		return ret;
 	}
 
 	template <typename... Args>
 	size_t fprintln(FILE* file, const char* fmt, Args&&... args)
 	{
-		size_t n = 0;
-		detail::print([&n, file](std::string_view sv) {
-			n += fprintf(file, "%.*s", (int) sv.size(), sv.data());
-		}, fmt, args...);
+		size_t ret = 0;
+		detail::print(detail::appender2<detail::STDIO_BUFFER_SIZE, true>(file, ret),
+			fmt, std::forward<Args>(args)...);
 
-		n += fprintf(file, "\n");
-		return n;
+		return ret;
 	}
 
 
@@ -431,61 +553,61 @@ namespace zpr
 		void print(T x, CallbackFn&& cb, format_args args)
 		{
 			int base = 10;
-			if(args.specifier == 'x' || args.specifier == 'X')      base = 16;
-			else if(args.specifier == 'o')                          base = 8;
-			else if(args.specifier == 'b')                          base = 2;
+			if(args.specifier == 'x' || args.specifier == 'X')  base = 16;
+			else if(args.specifier == 'o')                      base = 8;
+			else if(args.specifier == 'b')                      base = 2;
 
-			std::string digits;
+			// if we print base 2 we need 64 digits!
+			char digits[65] = {0};
+			int64_t digits_len = 0;
+
 			{
-				// if we print base 2 we need 64 digits!
-				char buf[65] = {0};
-
-				size_t digits_len = 0;
 				auto spec = args.specifier;
 
 				std::to_chars_result ret;
 				if constexpr (std::is_enum_v<T>)
-					ret = std::to_chars(&buf[0], &buf[65], static_cast<std::underlying_type_t<T>>(x), /* base: */ base);
+					ret = std::to_chars(&digits[0], &digits[65], static_cast<std::underlying_type_t<T>>(x), /* base: */ base);
 
 				else
-					ret = std::to_chars(&buf[0], &buf[65], x, /* base: */ base);
+					ret = std::to_chars(&digits[0], &digits[65], x, /* base: */ base);
 
-				if(ret.ec == std::errc())   digits_len = (ret.ptr - &buf[0]), *ret.ptr = 0;
+				if(ret.ec == std::errc())   digits_len = (ret.ptr - &digits[0]), *ret.ptr = 0;
 				else                        return cb("<to_chars(int) error>");
 
 				if(isupper(args.specifier))
 					for(size_t i = 0; i < digits_len; i++)
-						buf[i] = static_cast<char>(toupper(buf[i]));
-
-				digits = std::string(buf, digits_len);
+						digits[i] = static_cast<char>(toupper(digits[i]));
 			}
 
-			std::string prefix;
-
-			if(args.prepend_plus_if_positive)       prefix += "+";
-			else if(args.prepend_blank_if_positive) prefix += " ";
-
-			// prepend 0x or 0b or 0o for alternate.
+			char prefix[4] = { 0 };
+			int64_t prefix_len = 0;
 			int64_t prefix_digits_length = 0;
-			if((base == 2 || base == 8 || base == 16) && args.alternate)
 			{
-				prefix += "0";
-				#if HEX_0X_RESPECTS_UPPERCASE
-					prefix += args.specifier;
-				#else
-					prefix += tolower(args.specifier);
-				#endif
-				prefix_digits_length += 2;
+				char* pf = prefix;
+				if(args.prepend_plus_if_positive)
+					prefix_len++, *pf++ = '+';
+
+				else if(args.prepend_blank_if_positive)
+					prefix_len++, *pf++ = ' ';
+
+				if(base != 10 && args.alternate)
+				{
+					*pf++ = '0';
+					*pf++ = (HEX_0X_RESPECTS_UPPERCASE ? args.specifier : (args.specifier | 0x20));
+
+					prefix_digits_length += 2;
+					prefix_len += 2;
+				}
 			}
 
 			int64_t output_length_with_precision = (args.precision == -1
-				? digits.size()
-				: std::max(args.precision, static_cast<int64_t>(digits.size()))
+				? digits_len
+				: std::max(args.precision, digits_len)
 			);
 
-			int64_t digits_length = prefix_digits_length + digits.size();
-			int64_t normal_length = prefix.size() + digits.size();
-			int64_t length_with_precision = prefix.size() + output_length_with_precision;
+			int64_t total_digits_length = prefix_digits_length + digits_len;
+			int64_t normal_length = prefix_len + digits_len;
+			int64_t length_with_precision = prefix_len + output_length_with_precision;
 
 			bool use_precision = (args.precision != -1);
 			bool use_zero_pad = args.zero_pad && 0 <= args.width && !use_precision;
@@ -494,28 +616,30 @@ namespace zpr
 
 			int64_t abs_field_width = std::abs(args.width);
 
-			std::string pre_prefix;
-			if(use_left_pad)
-				pre_prefix = std::string(std::max(int64_t(0), abs_field_width - length_with_precision), ' ');
+			int64_t padding_width = abs_field_width - length_with_precision;
+			int64_t zeropad_width = abs_field_width - normal_length;
+			int64_t precpad_width = args.precision - total_digits_length;
 
-			std::string post_prefix;
-			if(use_zero_pad)
-				post_prefix = std::string(std::max(int64_t(0), abs_field_width - normal_length), '0');
+			if(padding_width <= 0) { use_left_pad = false; use_right_pad = false; }
+			if(zeropad_width <= 0) { use_zero_pad = false; }
+			if(precpad_width <= 0) { use_precision = false; }
 
-			std::string prec_string;
-			if(use_precision)
-				prec_string = std::string(std::max(int64_t(0), args.precision - digits_length), '0');
 
-			std::string postfix;
-			if(use_right_pad)
-				postfix = std::string(std::max(int64_t(0), abs_field_width - length_with_precision), ' ');
+			// pre-prefix
+			if(use_left_pad) cb(' ', padding_width);
 
-			cb(pre_prefix);
-			cb(prefix);
-			cb(post_prefix);
-			cb(prec_string);
-			cb(digits);
-			cb(postfix);
+			cb(prefix, prefix_len);
+
+			// post-prefix
+			if(use_zero_pad) cb('0', zeropad_width);
+
+			// prec-string
+			if(use_precision) cb('0', precpad_width);
+
+			cb(digits, digits_len);
+
+			// postfix
+			if(use_right_pad) cb(' ', padding_width);
 		}
 	};
 
@@ -532,12 +656,11 @@ namespace zpr
 		{
 			constexpr int default_prec = 6;
 
-			char buf[81] = { 0 };
+			char buf[128] = { 0 };
 			int64_t num_length = 0;
 
 			// lmao. nobody except msvc stl (and only the most recent version) implements std::to_chars
 			// for floating point types, even though it's in the c++17 standard. so we just cheat.
-
 			// let printf handle the precision, but we'll handle the width and the negativity.
 			{
 				const char* fmt_str = 0;
@@ -556,7 +679,7 @@ namespace zpr
 					default:  fmt_str = (ldbl ? "%.*Lg" : (dbl ? "%.*lg" : "%.*g")); break;
 				}
 
-				num_length = snprintf(&buf[0], 80, fmt_str, (int) (args.precision == -1 ? default_prec : args.precision),
+				num_length = snprintf(&buf[0], 128, fmt_str, (int) (args.precision == -1 ? default_prec : args.precision),
 					std::fabs(x));
 			}
 
@@ -570,28 +693,21 @@ namespace zpr
 			if(x < 0 || args.prepend_plus_if_positive || args.prepend_blank_if_positive)
 				num_length += 1;
 
-			std::string pre_prefix;
-			if(use_left_pad)
-				pre_prefix = std::string(std::max(int64_t(0), abs_field_width - num_length), ' ');
+			int64_t padding_width = abs_field_width - num_length;
+			if(padding_width < 0) { use_left_pad = false; use_right_pad = false; use_zero_pad = false; }
 
-			std::string prefix;
-			if(x < 0)                               prefix = "-";
-			else if(args.prepend_plus_if_positive)  prefix = "+";
-			else if(args.prepend_blank_if_positive) prefix = " ";
+			char prefix = 0;
+			if(x < 0)                               prefix = '-';
+			else if(args.prepend_plus_if_positive)  prefix = '+';
+			else if(args.prepend_blank_if_positive) prefix = ' ';
 
-			std::string post_prefix;
-			if(use_zero_pad)
-				post_prefix = std::string(std::max(int64_t(0), abs_field_width - num_length), '0');
+			if(use_left_pad)  cb(' ', padding_width);
+			if(prefix != 0)   cb(prefix);
+			if(use_zero_pad)  cb('0', padding_width);
 
-			std::string postfix;
-			if(use_right_pad)
-				postfix = std::string(std::max(int64_t(0), abs_field_width - num_length), ' ');
+			cb(buf, num_length);
 
-			cb(pre_prefix);
-			cb(prefix);
-			cb(post_prefix);
-			cb(buf);
-			cb(postfix);
+			if(use_right_pad) cb(' ', padding_width);
 		}
 	};
 
@@ -611,18 +727,16 @@ namespace zpr
 			int64_t string_length = 0;
 			int64_t abs_field_width = std::abs(args.width);
 
-			for(int64_t i = 0; (args.precision != -1 ? (i < args.precision && x && x[i]) : (x && x[i])); i++)
-				string_length++;
+			if(args.precision >= 0) string_length = std::min(args.precision, static_cast<int64_t>(strlen(x)));
+			else                    string_length = static_cast<int64_t>(strlen(x));
 
 			if(args.width >= 0 && string_length < abs_field_width)
-				for(int64_t i = 0; i < abs_field_width - string_length; i++)
-					cb(" ");
+				cb(' ', abs_field_width - string_length);
 
-			cb(std::string_view(x, string_length));
+			cb(x, string_length);
 
 			if(args.width < 0 && string_length < abs_field_width)
-				for(int64_t i = 0; i < abs_field_width - string_length; i++)
-					cb(" ");
+				cb(' ', abs_field_width - string_length);
 		}
 	};
 
@@ -634,7 +748,7 @@ namespace zpr
 	)>::type>
 	{
 		template <typename CallbackFn>
-		void print(T x, CallbackFn&& cb, format_args args)
+		void print(const T& x, CallbackFn&& cb, format_args args)
 		{
 			int64_t string_length = 0;
 			int64_t abs_field_width = std::abs(args.width);
@@ -643,14 +757,12 @@ namespace zpr
 			else                    string_length = static_cast<int64_t>(x.size());
 
 			if(args.width >= 0 && string_length < abs_field_width)
-				for(int64_t i = 0; i < abs_field_width - string_length; i++)
-					cb(" ");
+				cb(' ', abs_field_width - string_length);
 
-			cb(std::string_view(x.c_str(), string_length));
+			cb(x, string_length);
 
 			if(args.width < 0 && string_length < abs_field_width)
-				for(int64_t i = 0; i < abs_field_width - string_length; i++)
-					cb(" ");
+				cb(' ', abs_field_width - string_length);
 		}
 	};
 
@@ -662,7 +774,7 @@ namespace zpr
 		template <typename CallbackFn>
 		void print(T x, CallbackFn&& cb, format_args args)
 		{
-			cb(std::string_view(&x, 1));
+			cb(x);
 		}
 	};
 
@@ -688,7 +800,7 @@ namespace zpr
 		void print(T x, CallbackFn&& cb, format_args args)
 		{
 			args.specifier = 'p';
-			print_formatter<uintptr_t>().print(x, cb, std::move(args));
+			print_formatter<uintptr_t>().print(reinterpret_cast<uintptr_t>(x), cb, std::move(args));
 		}
 	};
 
@@ -715,7 +827,7 @@ namespace zpr
 			cb("[");
 			for(auto it = begin(x);;)
 			{
-				detail::consume_0(cb, args, "", *it);
+				detail::print(cb, "", std::forward_as_tuple(*it));
 				++it;
 
 				if(it != end(x)) cb(", ");
@@ -733,9 +845,9 @@ namespace zpr
 		void print(const std::pair<A, B>& x, CallbackFn&& cb, format_args args)
 		{
 			cb("{ ");
-			detail::consume_0(cb, args, "", x.first);
+			detail::print(cb, "", std::forward_as_tuple(x.first));
 			cb(", ");
-			detail::consume_0(cb, args, "", x.second);
+			detail::print(cb, "", std::forward_as_tuple(x.second));
 			cb(" }");
 		}
 	};
