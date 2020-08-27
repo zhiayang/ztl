@@ -1112,7 +1112,6 @@ namespace zpr
 	template <typename T>
 	struct print_formatter<T, typename std::enable_if<(
 		std::is_same_v<T, char*> ||
-		std::is_same_v<T, char const*> ||
 		std::is_same_v<T, const char*> ||
 		std::is_same_v<T, const char* const>
 	)>::type>
