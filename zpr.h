@@ -81,11 +81,32 @@
 	- all iterable containers   (with begin(x) and end(x) available -- prints as "[ a, b, ..., c ]")
 
 
+	optional #define macros to control behaviour:
+
+	- ZPR_HEX_0X_RESPECTS_UPPERCASE
+		this is *FALSE* by default. basically, if you use '{X}', this setting determines whether
+		you'll get '0xDEADBEEF' or '0XDEADBEEF'. i think the capital 'X' looks ugly as heck, so this
+		is OFF by default.
+
+	- ZPR_DECIMAL_LOOKUP_TABLE
+		this is *TRUE* by default. controls whether we use a lookup table to increase the speed of
+		decimal printing. this uses 201 bytes.
+
+	- ZPR_HEXADECIMAL_LOOKUP_TABLE
+		this is *TRUE* by default. controls whether we use a lookup table to increase the speed of
+		hex printing. this uses 1025 bytes.
+
 
 
 
 	Version History
 	===============
+
+	1.3.1 - 09/09/2020
+	------------------
+	Remove dependency on std::to_chars, to slowly wean off STL. Introduce two new #defines:
+	ZPR_DECIMAL_LOOKUP_TABLE, and ZPR_HEXADECIMAL_LOOKUP_TABLE. see docs for info.
+
 
 
 	1.3.0 - 08/09/2020
@@ -105,6 +126,7 @@
 	- broken formatting for floating point numbers
 	- '{}' now uses '%g' format for floating point numbers
 	- '{p}' (ie. '%p') now works, including '{}' for void* and const void*.
+
 
 
 	1.2.0 - 20/07/2020
@@ -144,9 +166,19 @@
 #include <type_traits>
 #include <string_view>
 
-#ifndef HEX_0X_RESPECTS_UPPERCASE
-	#define HEX_0X_RESPECTS_UPPERCASE 0
+#ifndef ZPR_HEX_0X_RESPECTS_UPPERCASE
+	#define ZPR_HEX_0X_RESPECTS_UPPERCASE 0
 #endif
+
+#ifndef ZPR_DECIMAL_LOOKUP_TABLE
+	#define ZPR_DECIMAL_LOOKUP_TABLE 1
+#endif
+
+#ifndef ZPR_HEXADECIMAL_LOOKUP_TABLE
+	#define ZPR_HEXADECIMAL_LOOKUP_TABLE 1
+#endif
+
+
 
 namespace zpr
 {
@@ -394,9 +426,25 @@ namespace zpr
 		}
 
 
-		// forward declare this.
+
+		// note that all the base printers need to return the same type, so just do 80 to account for
+		// the base 2 printing.
+		struct __buffer_thingy
+		{
+			static constexpr size_t BUFFER_LEN = 80;
+
+			char* buf = 0;
+			size_t len = 0;
+			char buffer[BUFFER_LEN] = { 0 };
+		};
+
+		// forward declare these
 		template <typename CallbackFn>
 		size_t print_floating(CallbackFn&& cb, double value, format_args args);
+
+		template <typename T>
+		__buffer_thingy print_decimal_integer(T value);
+
 
 
 		template <typename CallbackFn>
@@ -409,7 +457,6 @@ namespace zpr
 				return print_special_floating(cb, value, std::move(args));
 
 			int prec = (args.have_precision() ? static_cast<int>(args.precision) : DEFAULT_PRECISION);
-			// int abs_field_width = std::abs(args.width);
 
 			bool use_precision  = args.have_precision();
 			bool use_zero_pad   = args.zero_pad() && args.positive_width() && !use_precision;
@@ -521,10 +568,11 @@ namespace zpr
 				// output the exponent value
 				char tmp[8] = { 0 };
 				size_t digits_len = 0;
-				auto ret = std::to_chars(&tmp[0], &tmp[8], static_cast<int64_t>(std::abs(expval)));
 
-				if(ret.ec == std::errc())   digits_len = (ret.ptr - &tmp[0]), *ret.ptr = 0;
-				else                        digits_len = 1, tmp[0] = '?';
+
+				auto buf = print_decimal_integer(static_cast<int64_t>(std::abs(expval)));
+				memcpy(tmp, buf.buf, buf.len);
+				digits_len = buf.len;
 
 				len += digits_len;
 				cb(expval < 0 ? '-' : '+');
@@ -555,7 +603,6 @@ namespace zpr
 
 			size_t len = 0;
 
-			// int abs_field_width = std::abs(args.width);
 			int prec = (args.have_precision() ? static_cast<int>(args.precision) : DEFAULT_PRECISION);
 
 			bool use_precision  = args.have_precision();
@@ -725,15 +772,154 @@ namespace zpr
 
 
 
+		template <typename T>
+		__buffer_thingy print_decimal_integer(T value)
+		{
+			constexpr const char lookup_table[] =
+				"000102030405060708091011121314151617181920212223242526272829"
+				"303132333435363738394041424344454647484950515253545556575859"
+				"606162636465666768697071727374757677787980818283848586878889"
+				"90919293949596979899";
+
+			bool neg = false;
+			if constexpr (std::is_signed_v<T>)
+			{
+				neg = (value < 0);
+				if(neg)
+					value = -value;
+			}
+
+			auto result = __buffer_thingy();
+			auto& BUFFER_LEN = __buffer_thingy::BUFFER_LEN;
+
+			auto& len = result.len;
+			char* ptr = &result.buffer[0];
+
+			// if we have the lookup table, do two digits at a time.
+		#if ZPR_DECIMAL_LOOKUP_TABLE
+
+			while(value >= 10)
+			{
+				memcpy(ptr + (BUFFER_LEN - 1) - len - 2, &lookup_table[(value % 100) * 2], 2);
+				value /= 100;
+				len += 2;
+			}
+
+			if(value > 0)
+			{
+				*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value % 10));
+				len++;
+			}
+
+		#else
+
+			while(value > 0)
+			{
+				*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value % 10));
+				value /= 10;
+				len++;
+			}
+
+		#endif
+
+			if(neg)
+			{
+				*(ptr + (BUFFER_LEN - 1) - len - 1) = '-';
+				len++;
+			}
+
+			result.buf = result.buffer + (BUFFER_LEN - 1) - len;
+			return result;
+		}
 
 
 
 
+		template <typename T>
+		__buffer_thingy print_hex_integer(T value)
+		{
+			constexpr const char lookup_table[] =
+				"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+				"202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+				"404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+				"606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f"
+				"808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
+				"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"
+				"c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
+				"e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff";
+
+			auto result = __buffer_thingy();
+			auto& BUFFER_LEN = __buffer_thingy::BUFFER_LEN;
+
+			auto& len = result.len;
+			char* ptr = &result.buffer[0];
+
+			auto hex_digit = [](int x) -> char {
+				if(0 <= x && x <= 9)
+					return '0' + x;
+
+				return 'a' + x;
+			};
 
 
+			// if we have the lookup table, do two digits at a time.
+		#if ZPR_HEXADECIMAL_LOOKUP_TABLE
 
+			while(value >= 0x10)
+			{
+				memcpy(ptr + (BUFFER_LEN - 1) - len - 2, &lookup_table[(value % 0x100) * 2], 2);
+				value /= 0x100;
+				len += 2;
+			}
 
+			if(value > 0)
+			{
+				*(ptr + (BUFFER_LEN - 1) - len - 1) = hex_digit(value % 0x10);
+				len++;
+			}
 
+		#else
+
+			while(value > 0)
+			{
+				*(ptr + (BUFFER_LEN - 1) - len - 1) = hex_digit(value % 0x10);
+				value /= 0x10;
+				len++;
+			}
+
+		#endif
+
+			result.buf = result.buffer + (BUFFER_LEN - 1) - len;
+			return result;
+		}
+
+		template <typename T>
+		__buffer_thingy print_binary_integer(T value)
+		{
+			auto result = __buffer_thingy();
+			auto& BUFFER_LEN = __buffer_thingy::BUFFER_LEN;
+
+			auto& len = result.len;
+			char* ptr = &result.buffer[0];
+
+			while(value > 0)
+			{
+				*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value & 1));
+				value >>= 1;
+				len++;
+			}
+
+			result.buf = result.buffer + (BUFFER_LEN - 1) - len;
+			return result;
+		}
+
+		template <typename T>
+		auto print_integer(T value, int base)
+		{
+			if(base == 2)       return print_binary_integer(value);
+			else if(base == 16) return print_hex_integer(value);
+			else                return print_decimal_integer(value);
+		}
 
 
 
@@ -883,12 +1069,6 @@ namespace zpr
 			// flush
 			cb(beg, end);
 		}
-
-		// template <typename CallbackFn, typename Tuple>
-		// void print(CallbackFn&& cb, const char* fmt, Tuple&& args)
-		// {
-		// 	print(cb, fmt, SIZE_MAX, std::forward<Tuple>(args));
-		// }
 
 
 		struct string_appender
@@ -1143,21 +1323,20 @@ namespace zpr
 			}
 
 			// if we print base 2 we need 64 digits!
-			char digits[65] = {0};
+			char digits[65] = { 0 };
 			int64_t digits_len = 0;
 
 			{
-				auto spec = args.specifier;
+				detail::__buffer_thingy buf;
 
-				std::to_chars_result ret;
 				if constexpr (std::is_enum_v<T>)
-					ret = std::to_chars(&digits[0], &digits[65], static_cast<std::underlying_type_t<T>>(x), /* base: */ base);
+					buf = detail::print_integer(static_cast<std::underlying_type_t<T>>(x), base);
 
 				else
-					ret = std::to_chars(&digits[0], &digits[65], x, /* base: */ base);
+					buf = detail::print_integer(x, base);
 
-				if(ret.ec == std::errc())   digits_len = (ret.ptr - &digits[0]), *ret.ptr = 0;
-				else                        return cb("<to_chars(int) error>");
+				memcpy(digits, buf.buf, buf.len);
+				digits_len = buf.len;
 
 				if(isupper(args.specifier))
 					for(size_t i = 0; i < digits_len; i++)
@@ -1178,7 +1357,7 @@ namespace zpr
 				if(base != 10 && args.alternate())
 				{
 					*pf++ = '0';
-					*pf++ = (HEX_0X_RESPECTS_UPPERCASE ? args.specifier : (args.specifier | 0x20));
+					*pf++ = (ZPR_HEX_0X_RESPECTS_UPPERCASE ? args.specifier : (args.specifier | 0x20));
 
 					prefix_digits_length += 2;
 					prefix_len += 2;
@@ -1199,8 +1378,6 @@ namespace zpr
 			bool use_left_pad = !use_zero_pad && args.positive_width();
 			bool use_right_pad = !use_zero_pad && args.negative_width();
 
-			// int64_t abs_field_width = std::abs(args.width);
-
 			int64_t padding_width = args.width - length_with_precision;
 			int64_t zeropad_width = args.width - normal_length;
 			int64_t precpad_width = args.precision - total_digits_length;
@@ -1214,8 +1391,6 @@ namespace zpr
 			if(use_left_pad) cb(' ', padding_width);
 
 			cb(prefix, prefix_len);
-
-			// printf("arg width = %d\n", args.width);
 
 			// post-prefix
 			if(use_zero_pad) cb('0', zeropad_width);
