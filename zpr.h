@@ -43,37 +43,13 @@
 
 
 /*
-	Version History
-	---------------
-	1.2.0 - 20/07/2020
-	Use floating-point printer from mpaland/printf, letting us actually beat printf in all cases.
-
-
-	1.1.1 - 20/07/2020
-	Don't include unistd.h
-
-
-	1.1.0 - 20/07/2020
-	Performance improvements: switched to tuple-based arguments instead of parameter-packed recursion. We are now (slightly)
-	faster than printf (as least on two of my systems) as long as no floating-point is involved. (for now we are still forced
-	to call snprintf to print floats... charconv pls)
-
-	Bug fixes: fixed broken escaping of {{ and }}.
-
-
-	1.0.0 - 19/07/2020
-	Initial release.
-
-
-
-
 	Documentation
-	-------------
+	=============
 	This printing library functions as a lightweight alternative to std::format in C++20 (or fmtlib), with the following (non)features:
 
 	1. no exceptions
 	2. short and simple implementation without tons of templates
-	3. no support for positional arguments
+	3. no support for positional arguments (for now)
 
 	Otherwise, it should support most of the "typical use-case" features that std::format provides. In essence it is a type-safe
 	alternative to printf supporting custom type printers. The usage is as such:
@@ -96,13 +72,66 @@
 	The currently supported builtin formatters are:
 	- integral types            (signed/unsigned char/short/int/long/long long) (but not 'char')
 	- floating point types      (float, double, long double)
-	- strings                   (char*, const char*, std::string_view, std::string)
+	- strings                   (char*, const char*, anything container value_type == 'char')
 	- booleans                  (prints as 'true'/'false')
 	- void*, const void*        (prints with %p)
 	- chars                     (char)
 	- enums                     (will print as their integer representation)
 	- std::pair                 (prints as "{ first, second }")
 	- all iterable containers   (with begin(x) and end(x) available -- prints as "[ a, b, ..., c ]")
+
+
+
+
+
+	Version History
+	===============
+
+
+	1.3.0 - 08/09/2020
+	------------------
+	Add overloads for the user-facing print functions that accept std::string_view as the format string. This also
+	works for std::string since string_view has an implicit conversion constructor for it.
+
+	Removed user-facing overloads of print and friends that take 'const char*'; now they either take std::string_view
+	(as above), or (const char&)[].
+
+	Change the behaviour of string printers; now, any iterable type with a value_type typedef equal to 'char'
+	(exactly char -- not signed char, not unsigned char) will print as a string. This lets us cover custom
+	string types as well. A side effect of this is that std::vector<char> will print as a string, which might
+	be unexpected.
+
+	Bug fixes:
+	- broken formatting for floating point numbers
+	- '{}' now uses '%g' format for floating point numbers
+	- '{p}' (ie. '%p') now works, including '{}' for void* and const void*.
+
+
+	1.2.0 - 20/07/2020
+	------------------
+	Use floating-point printer from mpaland/printf, letting us actually beat printf in all cases.
+
+
+
+	1.1.1 - 20/07/2020
+	------------------
+	Don't include unistd.h
+
+
+
+	1.1.0 - 20/07/2020
+	------------------
+	Performance improvements: switched to tuple-based arguments instead of parameter-packed recursion. We are now (slightly)
+	faster than printf (as least on two of my systems) as long as no floating-point is involved. (for now we are still forced
+	to call snprintf to print floats... charconv pls)
+
+	Bug fixes: fixed broken escaping of {{ and }}.
+
+
+
+	1.0.0 - 19/07/2020
+	------------------
+	Initial release.
 */
 
 #include <cmath>
@@ -121,17 +150,32 @@
 
 namespace zpr
 {
+	constexpr uint8_t FMT_FLAG_ZERO_PAD         = 0x1;
+	constexpr uint8_t FMT_FLAG_ALTERNATE        = 0x2;
+	constexpr uint8_t FMT_FLAG_PREPEND_PLUS     = 0x4;
+	constexpr uint8_t FMT_FLAG_PREPEND_SPACE    = 0x8;
+	constexpr uint8_t FMT_FLAG_HAVE_WIDTH       = 0x10;
+	constexpr uint8_t FMT_FLAG_HAVE_PRECISION   = 0x20;
+	constexpr uint8_t FMT_FLAG_WIDTH_NEGATIVE   = 0x40;
+
 	struct format_args
 	{
-		bool zero_pad = false;
-		bool alternate = false;
-		bool prepend_plus_if_positive = false;
-		bool prepend_blank_if_positive = false;
-
 		char specifier      = -1;
+		uint8_t flags       = 0;
+
 		int64_t width       = -1;
 		int64_t length      = -1;
 		int64_t precision   = -1;
+
+		bool zero_pad() const       { return this->flags & FMT_FLAG_ZERO_PAD; }
+		bool alternate() const      { return this->flags & FMT_FLAG_ALTERNATE; }
+		bool have_width() const     { return this->flags & FMT_FLAG_HAVE_WIDTH; }
+		bool have_precision() const { return this->flags & FMT_FLAG_HAVE_PRECISION; }
+		bool prepend_plus() const   { return this->flags & FMT_FLAG_PREPEND_PLUS; }
+		bool prepend_space() const  { return this->flags & FMT_FLAG_PREPEND_SPACE; }
+
+		bool negative_width() const { return have_width() && (this->flags & FMT_FLAG_WIDTH_NEGATIVE); }
+		bool positive_width() const { return have_width() && !negative_width(); }
 	};
 
 	template <typename T, typename = void>
@@ -174,16 +218,15 @@ namespace zpr
 			bool need_width = false;
 			format_args fmt_args = { };
 			{
-				bool negative_width = false;
 				while(sv.size() > 0)
 				{
 					switch(sv[0])
 					{
-						case '0':   fmt_args.zero_pad = true; sv.remove_prefix(1); continue;
-						case '#':   fmt_args.alternate = true; sv.remove_prefix(1); continue;
-						case '-':   negative_width = true; sv.remove_prefix(1); continue;
-						case '+':   fmt_args.prepend_plus_if_positive = true; sv.remove_prefix(1); continue;
-						case ' ':   fmt_args.prepend_blank_if_positive = true; sv.remove_prefix(1); continue;
+						case '0':   fmt_args.flags |= FMT_FLAG_ZERO_PAD; sv.remove_prefix(1); continue;
+						case '#':   fmt_args.flags |= FMT_FLAG_ALTERNATE; sv.remove_prefix(1); continue;
+						case '-':   fmt_args.flags |= FMT_FLAG_WIDTH_NEGATIVE; sv.remove_prefix(1); continue;
+						case '+':   fmt_args.flags |= FMT_FLAG_PREPEND_PLUS; sv.remove_prefix(1); continue;
+						case ' ':   fmt_args.flags |= FMT_FLAG_PREPEND_SPACE; sv.remove_prefix(1); continue;
 						default:    break;
 					}
 
@@ -198,16 +241,19 @@ namespace zpr
 					// note: if you use *, then the negative width is ignored!
 					need_width = true;
 					sv.remove_prefix(1);
+					fmt_args.flags |= FMT_FLAG_HAVE_WIDTH;
 				}
-				else
+				else if('0' <= sv[0] && sv[0] <= '9')
 				{
+					fmt_args.flags |= FMT_FLAG_HAVE_WIDTH;
+
 					size_t k = 0;
-					while(sv.size() > k && (sv[k] >= '0') && (sv[k] <= '9'))
+					fmt_args.width = 0;
+
+					while(sv.size() > k && ('0' <= sv[k] && sv[k] <= '9'))
 						(fmt_args.width = 10 * fmt_args.width + (sv[k] - '0')), k++;
 
 					sv.remove_prefix(k);
-					if(negative_width)
-						fmt_args.width *= -1;
 				}
 
 				if(sv.empty())
@@ -221,6 +267,7 @@ namespace zpr
 					{
 						sv.remove_prefix(1);
 						need_prec = true;
+						fmt_args.flags |= FMT_FLAG_HAVE_PRECISION;
 					}
 					else if(sv.size() > 0 && sv[0] == '-')
 					{
@@ -231,8 +278,9 @@ namespace zpr
 
 						sv.remove_prefix(k);
 					}
-					else
+					else if('0' <= sv[0] && sv[0] <= '9')
 					{
+						fmt_args.flags |= FMT_FLAG_HAVE_PRECISION;
 						fmt_args.precision = 0;
 
 						size_t k = 0;
@@ -305,20 +353,19 @@ namespace zpr
 		size_t print_string(CallbackFn&& cb, const char* str, size_t len, format_args args)
 		{
 			int64_t string_length = 0;
-			int64_t abs_field_width = std::abs(args.width);
 
-			if(args.precision >= 0) string_length = std::min(args.precision, static_cast<int64_t>(len));
-			else                    string_length = static_cast<int64_t>(len);
+			if(args.have_precision())   string_length = std::min(args.precision, static_cast<int64_t>(len));
+			else                        string_length = static_cast<int64_t>(len);
 
 			size_t ret = string_length;
-			auto padding_width = abs_field_width - string_length;
+			auto padding_width = args.width - string_length;
 
-			if(args.width >= 0 && padding_width > 0)
+			if(args.positive_width() && padding_width > 0)
 				cb(' ', padding_width), ret += padding_width;
 
 			cb(str, string_length);
 
-			if(args.width < 0 && padding_width > 0)
+			if(args.negative_width() && padding_width > 0)
 				cb(' ', padding_width), ret += padding_width;
 
 			return ret;
@@ -335,10 +382,10 @@ namespace zpr
 
 			if(value > DBL_MAX)
 			{
-				return print_string(cb, args.prepend_plus_if_positive
-					? "+inf" : args.prepend_blank_if_positive
+				return print_string(cb, args.prepend_plus()
+					? "+inf" : args.prepend_space()
 					? " inf" : "inf",
-					args.prepend_blank_if_positive || args.prepend_plus_if_positive ? 4 : 3,
+					args.prepend_space() || args.prepend_plus() ? 4 : 3,
 					std::move(args)
 				);
 			}
@@ -361,13 +408,13 @@ namespace zpr
 			if((value != value) || (value > DBL_MAX) || (value < -DBL_MAX))
 				return print_special_floating(cb, value, std::move(args));
 
-			int prec = (args.precision == -1 ? DEFAULT_PRECISION : static_cast<int>(args.precision));
-			int abs_field_width = std::abs(args.width);
+			int prec = (args.have_precision() ? static_cast<int>(args.precision) : DEFAULT_PRECISION);
+			// int abs_field_width = std::abs(args.width);
 
-			bool use_precision = (args.precision != -1);
-			bool use_zero_pad = args.zero_pad && 0 <= args.width && !use_precision;
-			bool use_left_pad = !use_zero_pad && 0 <= args.width;
-			bool use_right_pad = !use_zero_pad && args.width < 0;
+			bool use_precision  = args.have_precision();
+			bool use_zero_pad   = args.zero_pad() && args.positive_width() && !use_precision;
+			bool use_left_pad   = !use_zero_pad && args.positive_width();
+			bool use_right_pad  = !use_zero_pad && args.negative_width();
 
 			// determine the sign
 			const bool negative = (value < 0);
@@ -436,8 +483,8 @@ namespace zpr
 			}
 
 			// will everything fit?
-			uint64_t fwidth = abs_field_width;
-			if(abs_field_width > minwidth)
+			uint64_t fwidth = args.width;
+			if(args.width > minwidth)
 			{
 				// we didn't fall-back so subtract the characters required for the exponent
 				fwidth -= minwidth;
@@ -489,8 +536,8 @@ namespace zpr
 				cb(tmp, digits_len);
 
 				// might need to right-pad spaces
-				if(use_right_pad && abs_field_width > len)
-					cb(' ', abs_field_width - len), len = abs_field_width;
+				if(use_right_pad && args.width > len)
+					cb(' ', args.width - len), len = args.width;
 			}
 
 			return len;
@@ -507,15 +554,14 @@ namespace zpr
 			char buf[MAX_BUFFER_LEN] = { 0 };
 
 			size_t len = 0;
-			double diff = 0.0;
 
-			int abs_field_width = std::abs(args.width);
-			int prec = (args.precision == -1 ? DEFAULT_PRECISION : static_cast<int>(args.precision));
+			// int abs_field_width = std::abs(args.width);
+			int prec = (args.have_precision() ? static_cast<int>(args.precision) : DEFAULT_PRECISION);
 
-			bool use_precision = (args.precision != -1);
-			bool use_zero_pad = args.zero_pad && 0 <= args.width && !use_precision;
-			bool use_left_pad = !use_zero_pad && 0 <= args.width;
-			bool use_right_pad = !use_zero_pad && args.width < 0;
+			bool use_precision  = args.have_precision();
+			bool use_zero_pad   = args.zero_pad() && args.positive_width() && !use_precision;
+			bool use_left_pad   = !use_zero_pad && args.positive_width();
+			bool use_right_pad  = !use_zero_pad && args.negative_width();
 
 			// powers of 10
 			constexpr double pow10[] = {
@@ -546,12 +592,16 @@ namespace zpr
 			if((value > EXPONENTIAL_CUTOFF) || (value < -EXPONENTIAL_CUTOFF))
 				return print_exponent(cb, value, std::move(args));
 
+			// default to g.
+			if(args.specifier == -1)
+				args.specifier = 'g';
+
 			// test for negative
 			const bool negative = (value < 0);
 			if(value < 0)
 				value = -value;
 
-			// limit precision to 9, cause a prec >= 10 can lead to overflow errors
+			// limit precision to 16, cause a prec >= 17 can lead to overflow errors
 			while((len < MAX_BUFFER_LEN) && (prec > 16))
 			{
 				buf[len++] = '0';
@@ -562,14 +612,14 @@ namespace zpr
 			auto tmp = (value - whole) * pow10[prec];
 			auto frac = static_cast<unsigned long>(tmp);
 
-			diff = tmp - frac;
+			double diff = tmp - frac;
 
 			if(diff > 0.5)
 			{
 				frac += 1;
 
 				// handle rollover, e.g. case 0.99 with prec 1 is 1.0
-				if(frac >= pow10[args.precision])
+				if(frac >= pow10[prec])
 				{
 					frac = 0;
 					whole += 1;
@@ -585,7 +635,7 @@ namespace zpr
 				frac += 1;
 			}
 
-			if(args.precision == 0U)
+			if(prec == 0U)
 			{
 				diff = value - static_cast<double>(whole);
 				if((!(diff < 0.5) || (diff > 0.5)) && (whole & 1))
@@ -599,12 +649,18 @@ namespace zpr
 			{
 				auto count = prec;
 
+				bool flag = (args.specifier == 'g' || args.specifier == 'G');
 				// now do fractional part, as an unsigned number
 				while(len < MAX_BUFFER_LEN)
 				{
-					count -= 1;
+					if(flag && (frac % 10) == 0)
+						goto skip;
+
+					flag = false;
 					buf[len++] = static_cast<char>('0' + (frac % 10));
 
+				skip:
+					count -= 1;
 					if(!(frac /= 10))
 						break;
 				}
@@ -629,9 +685,9 @@ namespace zpr
 			// pad leading zeros
 			if(use_zero_pad)
 			{
-				auto width = abs_field_width;
+				auto width = args.width;
 
-				if(width != 0 && (negative || args.prepend_plus_if_positive || args.prepend_blank_if_positive))
+				if(args.have_width() != 0 && (negative || args.prepend_plus() || args.prepend_space()))
 					width--;
 
 				while((len < width) && (len < MAX_BUFFER_LEN))
@@ -643,10 +699,10 @@ namespace zpr
 				if(negative)
 					buf[len++] = '-';
 
-				else if(args.prepend_plus_if_positive)
+				else if(args.prepend_plus())
 					buf[len++] = '+'; // ignore the space if the '+' exists
 
-				else if(args.prepend_blank_if_positive)
+				else if(args.prepend_space())
 					buf[len++] = ' ';
 			}
 
@@ -654,7 +710,7 @@ namespace zpr
 			for(size_t i = 0; i < len / 2; i++)
 				std::swap(buf[i], buf[len - i - 1]);
 
-			auto padding_width = std::max(int64_t(0), abs_field_width - static_cast<int64_t>(len));
+			auto padding_width = std::max(int64_t(0), args.width - static_cast<int64_t>(len));
 
 			if(use_left_pad)
 				cb(' ', padding_width);
@@ -690,14 +746,14 @@ namespace zpr
 
 
 		template <typename CallbackFn, typename Tuple>
-		void print(CallbackFn&& cb, const char* fmt, Tuple&& args)
+		void print(CallbackFn&& cb, const char* fmt, size_t len, Tuple&& args)
 		{
 			auto beg = fmt;
 			auto end = fmt;
 
 			size_t tup_idx = 0;
 
-			while(end && *end)
+			while(end - fmt <= len && end && *end)
 			{
 				if(*end == '{')
 				{
@@ -828,11 +884,16 @@ namespace zpr
 			cb(beg, end);
 		}
 
+		// template <typename CallbackFn, typename Tuple>
+		// void print(CallbackFn&& cb, const char* fmt, Tuple&& args)
+		// {
+		// 	print(cb, fmt, SIZE_MAX, std::forward<Tuple>(args));
+		// }
 
 
-		struct appender
+		struct string_appender
 		{
-			appender(std::string& buf) : buf(buf) { }
+			string_appender(std::string& buf) : buf(buf) { }
 
 			void operator() (char c) { this->buf += c; }
 			void operator() (std::string_view sv) { this->buf += sv; }
@@ -840,25 +901,25 @@ namespace zpr
 			void operator() (const char* begin, const char* end) { this->buf.append(begin, end); }
 			void operator() (const char* begin, size_t len) { this->buf.append(begin, begin + len); }
 
-			appender(appender&&) = delete;
-			appender(const appender&) = delete;
-			appender& operator= (appender&&) = delete;
-			appender& operator= (const appender&) = delete;
+			string_appender(string_appender&&) = delete;
+			string_appender(const string_appender&) = delete;
+			string_appender& operator= (string_appender&&) = delete;
+			string_appender& operator= (const string_appender&) = delete;
 
 		private:
 			std::string& buf;
 		};
 
 		template <size_t Limit, bool Newline>
-		struct appender2
+		struct file_appender
 		{
-			appender2(FILE* fd, size_t& written) : fd(fd), written(written) { }
-			~appender2() { flush(true); }
+			file_appender(FILE* fd, size_t& written) : fd(fd), written(written) { }
+			~file_appender() { flush(true); }
 
-			appender2(appender2&&) = delete;
-			appender2(const appender2&) = delete;
-			appender2& operator= (appender2&&) = delete;
-			appender2& operator= (const appender2&) = delete;
+			file_appender(file_appender&&) = delete;
+			file_appender(const file_appender&) = delete;
+			file_appender& operator= (file_appender&&) = delete;
+			file_appender& operator= (const file_appender&) = delete;
 
 			void operator() (char c) { *ptr++ = c; flush(); }
 
@@ -925,55 +986,128 @@ namespace zpr
 
 
 
-	template <typename... Args>
-	std::string sprint(const char* fmt, Args&&... args)
+	template <size_t fmt_N, typename... Args>
+	std::string sprint(const char (&fmt)[fmt_N], Args&&... args)
 	{
 		std::string buf;
-		detail::print(detail::appender(buf), fmt, std::forward<Args>(args)...);
+		detail::print(detail::string_appender(buf),
+			fmt, fmt_N, std::forward_as_tuple(args...));
+
+		return buf;
+	}
+
+	template <size_t fmt_N, typename... Args>
+	size_t print(const char (&fmt)[fmt_N], Args&&... args)
+	{
+		size_t ret = 0;
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret),
+			fmt, fmt_N, std::forward_as_tuple(args...));
+
+		return ret;
+	}
+
+	template <size_t fmt_N, typename... Args>
+	size_t println(const char (&fmt)[fmt_N], Args&&... args)
+	{
+		size_t ret = 0;
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret),
+			fmt, fmt_N, std::forward_as_tuple(args...));
+
+		return ret;
+	}
+
+
+	template <size_t fmt_N, typename... Args>
+	size_t fprint(FILE* file, const char (&fmt)[fmt_N], Args&&... args)
+	{
+		size_t ret = 0;
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret),
+			fmt, fmt_N, std::forward_as_tuple(args...));
+
+		return ret;
+	}
+
+	template <size_t fmt_N, typename... Args>
+	size_t fprintln(FILE* file, const char (&fmt)[fmt_N], Args&&... args)
+	{
+		size_t ret = 0;
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret),
+			fmt, fmt_N, std::forward_as_tuple(args...));
+
+		return ret;
+	}
+
+
+
+
+
+	// overloads taking std::string_view fmt instead of const char* fmt
+	template <typename... Args>
+	std::string sprint(std::string_view fmt, Args&&... args)
+	{
+		std::string buf;
+		detail::print(detail::string_appender(buf), fmt.data(), fmt.size(), std::forward_as_tuple(args...));
 
 		return buf;
 	}
 
 	template <typename... Args>
-	size_t print(const char* fmt, Args&&... args)
+	size_t print(std::string_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::appender2<detail::STDIO_BUFFER_SIZE, false>(stdout, ret),
-			fmt, std::forward<Args>(args)...);
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret),
+			fmt.data(), fmt.size(), std::forward_as_tuple(args...));
 
 		return ret;
 	}
 
 	template <typename... Args>
-	size_t println(const char* fmt, Args&&... args)
+	size_t println(std::string_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::appender2<detail::STDIO_BUFFER_SIZE, true>(stdout, ret),
-			fmt, std::forward<Args>(args)...);
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret),
+			fmt.data(), fmt.size(), std::forward_as_tuple(args...));
 
 		return ret;
 	}
 
 
 	template <typename... Args>
-	size_t fprint(FILE* file, const char* fmt, Args&&... args)
+	size_t fprint(FILE* file, std::string_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::appender2<detail::STDIO_BUFFER_SIZE, false>(file, ret),
-			fmt, std::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret),
+			fmt.data(), fmt.size(), std::forward_as_tuple(args...));
 
 		return ret;
 	}
 
 	template <typename... Args>
-	size_t fprintln(FILE* file, const char* fmt, Args&&... args)
+	size_t fprintln(FILE* file, std::string_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::appender2<detail::STDIO_BUFFER_SIZE, true>(file, ret),
-			fmt, std::forward<Args>(args)...);
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret),
+			fmt.data(), fmt.size(), std::forward_as_tuple(args...));
 
 		return ret;
 	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -998,9 +1132,15 @@ namespace zpr
 		void print(T x, CallbackFn&& cb, format_args args)
 		{
 			int base = 10;
-			if(args.specifier == 'x' || args.specifier == 'X')  base = 16;
-			else if(args.specifier == 'o')                      base = 8;
-			else if(args.specifier == 'b')                      base = 2;
+			if((args.specifier | 0x20) == 'x')  base = 16;
+			else if(args.specifier == 'o')      base = 8;
+			else if(args.specifier == 'b')      base = 2;
+			else if(args.specifier == 'p')
+			{
+				base = 16;
+				args.specifier = 'x';
+				args.flags |= FMT_FLAG_ALTERNATE;
+			}
 
 			// if we print base 2 we need 64 digits!
 			char digits[65] = {0};
@@ -1029,13 +1169,13 @@ namespace zpr
 			int64_t prefix_digits_length = 0;
 			{
 				char* pf = prefix;
-				if(args.prepend_plus_if_positive)
+				if(args.prepend_plus())
 					prefix_len++, *pf++ = '+';
 
-				else if(args.prepend_blank_if_positive)
+				else if(args.prepend_space())
 					prefix_len++, *pf++ = ' ';
 
-				if(base != 10 && args.alternate)
+				if(base != 10 && args.alternate())
 				{
 					*pf++ = '0';
 					*pf++ = (HEX_0X_RESPECTS_UPPERCASE ? args.specifier : (args.specifier | 0x20));
@@ -1055,14 +1195,14 @@ namespace zpr
 			int64_t length_with_precision = prefix_len + output_length_with_precision;
 
 			bool use_precision = (args.precision != -1);
-			bool use_zero_pad = args.zero_pad && 0 <= args.width && !use_precision;
-			bool use_left_pad = !use_zero_pad && 0 <= args.width;
-			bool use_right_pad = !use_zero_pad && args.width < 0;
+			bool use_zero_pad = args.zero_pad() && args.positive_width() && !use_precision;
+			bool use_left_pad = !use_zero_pad && args.positive_width();
+			bool use_right_pad = !use_zero_pad && args.negative_width();
 
-			int64_t abs_field_width = std::abs(args.width);
+			// int64_t abs_field_width = std::abs(args.width);
 
-			int64_t padding_width = abs_field_width - length_with_precision;
-			int64_t zeropad_width = abs_field_width - normal_length;
+			int64_t padding_width = args.width - length_with_precision;
+			int64_t zeropad_width = args.width - normal_length;
 			int64_t precpad_width = args.precision - total_digits_length;
 
 			if(padding_width <= 0) { use_left_pad = false; use_right_pad = false; }
@@ -1075,11 +1215,13 @@ namespace zpr
 
 			cb(prefix, prefix_len);
 
+			// printf("arg width = %d\n", args.width);
+
 			// post-prefix
 			if(use_zero_pad) cb('0', zeropad_width);
 
 			// prec-string
-			if(use_precision) cb('0', precpad_width);
+			if(use_precision) cb(' ', precpad_width);
 
 			cb(digits, digits_len);
 
@@ -1112,8 +1254,7 @@ namespace zpr
 	template <typename T>
 	struct print_formatter<T, typename std::enable_if<(
 		std::is_same_v<T, char*> ||
-		std::is_same_v<T, const char*> ||
-		std::is_same_v<T, const char* const>
+		std::is_same_v<T, const char*>
 	)>::type>
 	{
 		template <typename CallbackFn>
@@ -1126,14 +1267,13 @@ namespace zpr
 
 	template <typename T>
 	struct print_formatter<T, typename std::enable_if<(
-		std::is_same_v<T, std::string> ||
-		std::is_same_v<T, std::string_view>
+		std::conjunction<detail::is_iterable<T>, std::is_same<typename T::value_type, char>>::value
 	)>::type>
 	{
 		template <typename CallbackFn>
 		void print(const T& x, CallbackFn&& cb, format_args args)
 		{
-			detail::print_string(cb, x.c_str(), x.size(), std::move(args));
+			detail::print_string(cb, x.data(), x.size(), std::move(args));
 		}
 	};
 
@@ -1178,9 +1318,7 @@ namespace zpr
 	// exclude strings and string_views
 	template <typename T>
 	struct print_formatter<T, typename std::enable_if<(
-		detail::is_iterable<T>::value &&
-		!std::is_same_v<T, std::string> &&
-		!std::is_same_v<T, std::string_view>
+		std::conjunction<detail::is_iterable<T>, std::negation<std::is_same<typename T::value_type, char>>>::value
 	)>::type>
 	{
 		template <typename CallbackFn>
