@@ -119,6 +119,18 @@
 	Version History
 	===============
 
+	1.5.0 - 10/09/2020
+	------------------
+	Change the print_formatter interface subtly. Now, you can choose to specialise the template for both the decayed
+	type (eg. int, const char*), or for the un-decayed type (eg. const int&, const char (&)[N]). The compiler will
+	choose the appropriate specialisation, preferring the latter (not-decayed) type, if it exists.
+
+	Bug fixes:
+	- fix issues where we would write NULL bytes into the output stream, due to the 'char(&)[N]' change.
+	- fix right-padding and zero-padding behaviour
+
+
+
 	1.4.0 - 10/09/2020
 	------------------
 	Completely remove dependency on STL types. sadly this includes lots of re-implemented type_traits, but an okay
@@ -183,7 +195,10 @@
 */
 
 #include <cfloat>
+#include <cstdio>
 #include <cstring>
+#include <cstdint>
+#include <cstddef>
 
 #ifndef ZPR_HEX_0X_RESPECTS_UPPERCASE
 	#define ZPR_HEX_0X_RESPECTS_UPPERCASE 0
@@ -924,7 +939,7 @@ namespace zpr
 			int prec = (args.have_precision() ? static_cast<int>(args.precision) : DEFAULT_PRECISION);
 
 			bool use_precision  = args.have_precision();
-			bool use_zero_pad   = args.zero_pad() && args.positive_width() && !use_precision;
+			bool use_zero_pad   = args.zero_pad() && args.positive_width();
 			bool use_left_pad   = !use_zero_pad && args.positive_width();
 			bool use_right_pad  = !use_zero_pad && args.negative_width();
 
@@ -1018,8 +1033,10 @@ namespace zpr
 				value /= conv.F;
 
 			// output the floating part
-			args.width = fwidth;
-			auto len = print_floating(cb, negative ? -value : value, args);
+
+			auto args_copy = args;
+			args_copy.width = fwidth;
+			auto len = print_floating(cb, negative ? -value : value, args_copy);
 
 			// output the exponent part
 			if(minwidth > 0)
@@ -1032,12 +1049,11 @@ namespace zpr
 				char tmp[8] = { 0 };
 				size_t digits_len = 0;
 
-
 				auto buf = print_decimal_integer(static_cast<int64_t>(tt::abs(expval)));
 				memcpy(tmp, buf.buf, buf.len);
 				digits_len = buf.len;
 
-				len += digits_len;
+				len += digits_len + 1;
 				cb(expval < 0 ? '-' : '+');
 
 				// zero-pad to minwidth - 2
@@ -1069,7 +1085,7 @@ namespace zpr
 			int prec = (args.have_precision() ? static_cast<int>(args.precision) : DEFAULT_PRECISION);
 
 			bool use_precision  = args.have_precision();
-			bool use_zero_pad   = args.zero_pad() && args.positive_width() && !use_precision;
+			bool use_zero_pad   = args.zero_pad() && args.positive_width();
 			bool use_left_pad   = !use_zero_pad && args.positive_width();
 			bool use_right_pad  = !use_zero_pad && args.negative_width();
 
@@ -1222,8 +1238,8 @@ namespace zpr
 
 			auto padding_width = tt::max(int64_t(0), args.width - static_cast<int64_t>(len));
 
-			if(use_left_pad)
-				cb(' ', padding_width);
+			if(use_left_pad) cb(' ', padding_width);
+			if(use_zero_pad) cb('0', padding_width);
 
 			cb(buf, len);
 
@@ -1597,12 +1613,12 @@ namespace zpr
 			file_appender& operator= (file_appender&&) = delete;
 			file_appender& operator= (const file_appender&) = delete;
 
-			void operator() (char c) { *ptr++ = c; flush(); }
+			inline void operator() (char c) { *ptr++ = c; flush(); }
 
-			void operator() (const tt::str_view& sv) { (*this)(sv.data(), sv.size()); }
-			void operator() (const char* begin, const char* end) { (*this)(begin, static_cast<size_t>(end - begin)); }
+			inline void operator() (const tt::str_view& sv) { (*this)(sv.data(), sv.size()); }
+			inline void operator() (const char* begin, const char* end) { (*this)(begin, static_cast<size_t>(end - begin)); }
 
-			void operator() (char c, size_t n)
+			inline void operator() (char c, size_t n)
 			{
 				while(n > 0)
 				{
@@ -1614,7 +1630,7 @@ namespace zpr
 				}
 			}
 
-			void operator() (const char* begin, size_t len)
+			inline void operator() (const char* begin, size_t len)
 			{
 				while(len > 0)
 				{
@@ -1659,31 +1675,31 @@ namespace zpr
 		{
 			buffer_appender(char* buf, size_t cap) : buf(buf), cap(cap), len(0) { }
 
-			void operator() (char c)
+			inline void operator() (char c)
 			{
 				if(this->len < this->cap)
 					this->buf[this->len++] = c;
 			}
 
-			void operator() (const tt::str_view& sv)
+			inline void operator() (const tt::str_view& sv)
 			{
 				auto l = this->remaining(sv.size());
 				memmove(&this->buf[this->len], sv.data(), l);
 				this->len += l;
 			}
 
-			void operator() (char c, size_t n)
+			inline void operator() (char c, size_t n)
 			{
 				for(size_t i = 0; i < this->remaining(n); i++)
 					this->buf[this->len++] = c;
 			}
 
-			void operator() (const char* begin, const char* end)
+			inline void operator() (const char* begin, const char* end)
 			{
 				(*this)(tt::str_view(begin, end - begin));
 			}
 
-			void operator() (const char* begin, size_t len)
+			inline void operator() (const char* begin, size_t len)
 			{
 				(*this)(tt::str_view(begin, len));
 			}
@@ -1693,10 +1709,10 @@ namespace zpr
 			buffer_appender& operator= (buffer_appender&&) = delete;
 			buffer_appender& operator= (const buffer_appender&) = delete;
 
-			size_t size() { return this->len; }
+			inline size_t size() { return this->len; }
 
 		private:
-			size_t remaining(size_t n) { return tt::min(this->cap - this->len, n); }
+			inline size_t remaining(size_t n) { return tt::min(this->cap - this->len, n); }
 
 			char* buf = 0;
 			size_t cap = 0;
@@ -1708,11 +1724,11 @@ namespace zpr
 		{
 			string_appender(std::string& buf) : buf(buf) { }
 
-			void operator() (char c) { this->buf += c; }
-			void operator() (const tt::str_view& sv) { this->buf += std::string_view(sv.data(), sv.size()); }
-			void operator() (char c, size_t n) { this->buf.resize(this->buf.size() + n, c); }
-			void operator() (const char* begin, const char* end) { this->buf.append(begin, end); }
-			void operator() (const char* begin, size_t len) { this->buf.append(begin, begin + len); }
+			inline void operator() (char c) { this->buf += c; }
+			inline void operator() (const tt::str_view& sv) { this->buf += std::string_view(sv.data(), sv.size()); }
+			inline void operator() (char c, size_t n) { this->buf.resize(this->buf.size() + n, c); }
+			inline void operator() (const char* begin, const char* end) { this->buf.append(begin, end); }
+			inline void operator() (const char* begin, size_t len) { this->buf.append(begin, begin + len); }
 
 			string_appender(string_appender&&) = delete;
 			string_appender(const string_appender&) = delete;
@@ -1911,9 +1927,9 @@ namespace zpr
 				memcpy(digits, buf.buf, buf.len);
 				digits_len = buf.len;
 
-				if(isupper(args.specifier))
+				if('A' <= args.specifier && args.specifier <= 'Z')
 					for(size_t i = 0; i < digits_len; i++)
-						digits[i] = static_cast<char>(toupper(digits[i]));
+						digits[i] = static_cast<char>(digits[i] - 0x20);
 			}
 
 			char prefix[4] = { 0 };
@@ -2024,20 +2040,15 @@ namespace zpr
 	};
 
 	template <>
-	struct print_formatter<char*>
-	{
-		template <typename Cb>
-		void print(char* x, Cb&& cb, format_args args)
-			{ detail::print_string(cb, x, strlen(x), tt::move(args)); }
-	};
-
-	template <>
 	struct print_formatter<const char*>
 	{
 		template <typename Cb>
 		void print(const char* x, Cb&& cb, format_args args)
 			{ detail::print_string(cb, x, strlen(x), tt::move(args)); }
 	};
+
+	template <>
+	struct print_formatter<char*> : print_formatter<const char*> { };
 
 	template <>
 	struct print_formatter<char>
