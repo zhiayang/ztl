@@ -10,7 +10,6 @@
 
 #define ZPR_USE_STD 0
 #include "zpr.h"
-#include "zpr2.h"
 
 int main(int argc, char** argv)
 {
@@ -22,8 +21,8 @@ int main(int argc, char** argv)
 
 	char c_                 = 'a';
 	bool b_                 = false;
-	int i_                  = -42;
-	long l_                 = -98765;
+	int i_                  = 0x33deadf;
+	long l_                 = 0;
 	unsigned long ul_       =  9384;
 	long long ll_           = -123456;
 	unsigned long long ull_ =  981234;
@@ -35,7 +34,6 @@ int main(int argc, char** argv)
 
 	auto pf = [](auto&&... xs) { printf(xs...); };
 	auto zpf = [](auto&&... xs) { zpr::println(xs...); };
-	auto zpf = [](auto&&... xs) { zpr2::println(xs...); };
 
 	constexpr auto line = "—————————————————————————————————";
 
@@ -95,42 +93,42 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
-	pf("%*.10d\n", 18, i_);         zpf("{.10}",  zpr2::w(18)(i_));     zpf(line);
-	pf("%*.10ld\n", 18, l_);        zpf("{.10}",  zpr2::w(18)(l_));     zpf(line);
-	pf("%*.10lu\n", 18, ul_);       zpf("{.10}",  zpr2::w(18)(ul_));    zpf(line);
-	pf("%*.10lld\n", 18, ll_);      zpf("{.10}",  zpr2::w(18)(ll_));    zpf(line);
-	pf("%*.10llu\n", 18, ull_);     zpf("{.10}",  zpr2::w(18)(ull_));   zpf(line);
-	pf("%*.10f\n", 18, f_);         zpf("{.10}",  zpr2::w(18)(f_));     zpf(line);
-	pf("%*.10f\n", 18, d_);         zpf("{.10}",  zpr2::w(18)(d_));     zpf(line);
-	pf("%*.10x\n", 18, i_);         zpf("{.10x}", zpr2::w(18)(i_));     zpf(line);
-	pf("%*.10e\n", 18, d_);         zpf("{.10e}", zpr2::w(18)(d_));     zpf(line);
-	pf("%*.10s\n", 18, s_);         zpf("{.10}",  zpr2::w(18)(s_));     zpf(line);
+	pf("%*.10d\n", 18, i_);         zpf("{.10}",  zpr::w(18)(i_));      zpf(line);
+	pf("%*.10ld\n", 18, l_);        zpf("{.10}",  zpr::w(18)(l_));      zpf(line);
+	pf("%*.10lu\n", 18, ul_);       zpf("{.10}",  zpr::w(18)(ul_));     zpf(line);
+	pf("%*.10lld\n", 18, ll_);      zpf("{.10}",  zpr::w(18)(ll_));     zpf(line);
+	pf("%*.10llu\n", 18, ull_);     zpf("{.10}",  zpr::w(18)(ull_));    zpf(line);
+	pf("%*.10f\n", 18, f_);         zpf("{.10}",  zpr::w(18)(f_));      zpf(line);
+	pf("%*.10f\n", 18, d_);         zpf("{.10}",  zpr::w(18)(d_));      zpf(line);
+	pf("%*.10x\n", 18, i_);         zpf("{.10x}", zpr::w(18)(i_));      zpf(line);
+	pf("%*.10e\n", 18, d_);         zpf("{.10e}", zpr::w(18)(d_));      zpf(line);
+	pf("%*.10s\n", 18, s_);         zpf("{.10}",  zpr::w(18)(s_));      zpf(line);
 
 	zpf("\n");
 
-	pf("%18.*d\n", 10, i_);         zpf("{18}",  zpr2::p(10)(i_));      zpf(line);
-	pf("%18.*ld\n", 10, l_);        zpf("{18}",  zpr2::p(10)(l_));      zpf(line);
-	pf("%18.*lu\n", 10, ul_);       zpf("{18}",  zpr2::p(10)(ul_));     zpf(line);
-	pf("%18.*lld\n", 10, ll_);      zpf("{18}",  zpr2::p(10)(ll_));     zpf(line);
-	pf("%18.*llu\n", 10, ull_);     zpf("{18}",  zpr2::p(10)(ull_));    zpf(line);
-	pf("%18.*f\n", 10, f_);         zpf("{18}",  zpr2::p(10)(f_));      zpf(line);
-	pf("%18.*f\n", 10, d_);         zpf("{18}",  zpr2::p(10)(d_));      zpf(line);
-	pf("%18.*x\n", 10, i_);         zpf("{18x}", zpr2::p(10)(i_));      zpf(line);
-	pf("%18.*e\n", 10, d_);         zpf("{18e}", zpr2::p(10)(d_));      zpf(line);
-	pf("%18.*s\n", 10, s_);         zpf("{18}",  zpr2::p(10)(s_));      zpf(line);
+	pf("%18.*d\n", 10, i_);         zpf("{18}",  zpr::p(10)(i_));       zpf(line);
+	pf("%18.*ld\n", 10, l_);        zpf("{18}",  zpr::p(10)(l_));       zpf(line);
+	pf("%18.*lu\n", 10, ul_);       zpf("{18}",  zpr::p(10)(ul_));      zpf(line);
+	pf("%18.*lld\n", 10, ll_);      zpf("{18}",  zpr::p(10)(ll_));      zpf(line);
+	pf("%18.*llu\n", 10, ull_);     zpf("{18}",  zpr::p(10)(ull_));     zpf(line);
+	pf("%18.*f\n", 10, f_);         zpf("{18}",  zpr::p(10)(f_));       zpf(line);
+	pf("%18.*f\n", 10, d_);         zpf("{18}",  zpr::p(10)(d_));       zpf(line);
+	pf("%18.*x\n", 10, i_);         zpf("{18x}", zpr::p(10)(i_));       zpf(line);
+	pf("%18.*e\n", 10, d_);         zpf("{18e}", zpr::p(10)(d_));       zpf(line);
+	pf("%18.*s\n", 10, s_);         zpf("{18}",  zpr::p(10)(s_));       zpf(line);
 
 	zpf("\n");
 
-	pf("%*.*d\n", 18, 10, i_);      zpf("{}",  zpr2::wp(18, 10)(i_));   zpf(line);
-	pf("%*.*ld\n", 18, 10, l_);     zpf("{}",  zpr2::wp(18, 10)(l_));   zpf(line);
-	pf("%*.*lu\n", 18, 10, ul_);    zpf("{}",  zpr2::wp(18, 10)(ul_));  zpf(line);
-	pf("%*.*lld\n", 18, 10, ll_);   zpf("{}",  zpr2::wp(18, 10)(ll_));  zpf(line);
-	pf("%*.*llu\n", 18, 10, ull_);  zpf("{}",  zpr2::wp(18, 10)(ull_)); zpf(line);
-	pf("%*.*f\n", 18, 10, f_);      zpf("{}",  zpr2::wp(18, 10)(f_));   zpf(line);
-	pf("%*.*f\n", 18, 10, d_);      zpf("{}",  zpr2::wp(18, 10)(d_));   zpf(line);
-	pf("%*.*x\n", 18, 10, i_);      zpf("{x}", zpr2::wp(18, 10)(i_));   zpf(line);
-	pf("%*.*e\n", 18, 10, d_);      zpf("{e}", zpr2::wp(18, 10)(d_));   zpf(line);
-	pf("%*.*s\n", 18, 10, s_);      zpf("{}",  zpr2::wp(18, 10)(s_));   zpf(line);
+	pf("%*.*d\n", 18, 10, i_);      zpf("{}",  zpr::wp(18, 10)(i_));    zpf(line);
+	pf("%*.*ld\n", 18, 10, l_);     zpf("{}",  zpr::wp(18, 10)(l_));    zpf(line);
+	pf("%*.*lu\n", 18, 10, ul_);    zpf("{}",  zpr::wp(18, 10)(ul_));   zpf(line);
+	pf("%*.*lld\n", 18, 10, ll_);   zpf("{}",  zpr::wp(18, 10)(ll_));   zpf(line);
+	pf("%*.*llu\n", 18, 10, ull_);  zpf("{}",  zpr::wp(18, 10)(ull_));  zpf(line);
+	pf("%*.*f\n", 18, 10, f_);      zpf("{}",  zpr::wp(18, 10)(f_));    zpf(line);
+	pf("%*.*f\n", 18, 10, d_);      zpf("{}",  zpr::wp(18, 10)(d_));    zpf(line);
+	pf("%*.*x\n", 18, 10, i_);      zpf("{x}", zpr::wp(18, 10)(i_));    zpf(line);
+	pf("%*.*e\n", 18, 10, d_);      zpf("{e}", zpr::wp(18, 10)(d_));    zpf(line);
+	pf("%*.*s\n", 18, 10, s_);      zpf("{}",  zpr::wp(18, 10)(s_));    zpf(line);
 
 	zpf("\n");
 

@@ -188,6 +188,13 @@
 	Version History
 	===============
 
+	2.0.2 - 28/09/2020
+	------------------
+	Small performance improvements. Reduced enable_if usage in favour of template specialisation to improve
+	compile times.
+
+
+
 	2.0.1 - 28/09/2020
 	------------------
 	Add `ln` versions of the cprint() functions.
@@ -291,6 +298,8 @@
 	------------------
 	Initial release.
 */
+
+#pragma once
 
 #include <cfloat>
 #include <cstddef>
@@ -589,34 +598,34 @@ namespace zpr::tt
 		str_view& operator= (str_view&&) = default;
 		str_view& operator= (const str_view&) = default;
 
-		bool operator== (const str_view& other) const
+		inline bool operator== (const str_view& other) const
 		{
 			return (this->ptr == other.ptr && this->len == other.len)
 				|| (strncmp(this->ptr, other.ptr, tt::min(this->len, other.len)) == 0);
 		}
 
-		bool operator!= (const str_view& other) const
+		inline bool operator!= (const str_view& other) const
 		{
 			return !(*this == other);
 		}
 
-		const char* begin() const { return this->ptr; }
-		const char* end() const { return this->ptr + len; }
+		inline const char* begin() const { return this->ptr; }
+		inline const char* end() const { return this->ptr + len; }
 
-		size_t size() const { return this->len; }
-		bool empty() const { return this->len == 0; }
-		const char* data() const { return this->ptr; }
+		inline size_t size() const { return this->len; }
+		inline bool empty() const { return this->len == 0; }
+		inline const char* data() const { return this->ptr; }
 
-		char operator[] (size_t n) { return this->ptr[n]; }
+		inline char operator[] (size_t n) { return this->ptr[n]; }
 
-		str_view drop(size_t n) const { return (this->size() > n ? this->substr(n) : ""); }
-		str_view take(size_t n) const { return (this->size() > n ? this->substr(0, n) : *this); }
-		str_view take_last(size_t n) const { return (this->size() > n ? this->substr(this->size() - n) : *this); }
-		str_view drop_last(size_t n) const { return (this->size() > n ? this->substr(0, this->size() - n) : *this); }
-		str_view substr(size_t pos = 0, size_t cnt = -1) const { return str_view(this->ptr + pos, cnt); }
+		inline str_view drop(size_t n) const { return (this->size() > n ? this->substr(n) : ""); }
+		inline str_view take(size_t n) const { return (this->size() > n ? this->substr(0, n) : *this); }
+		inline str_view take_last(size_t n) const { return (this->size() > n ? this->substr(this->size() - n) : *this); }
+		inline str_view drop_last(size_t n) const { return (this->size() > n ? this->substr(0, this->size() - n) : *this); }
+		inline str_view substr(size_t pos = 0, size_t cnt = -1) const { return str_view(this->ptr + pos, cnt); }
 
-		str_view& remove_prefix(size_t n) { return (*this = this->drop(n)); }
-		str_view& remove_suffix(size_t n) { return (*this = this->drop_last(n)); }
+		inline str_view& remove_prefix(size_t n) { return (*this = this->drop(n)); }
+		inline str_view& remove_suffix(size_t n) { return (*this = this->drop_last(n)); }
 
 	private:
 		const char* ptr;
@@ -722,7 +731,7 @@ namespace zpr
 		{
 			__fmtarg_w_helper(int w) : width(w) { }
 
-			template <typename T> __fmtarg_w<T&&> operator() (T&& val)
+			template <typename T> inline __fmtarg_w<T&&> operator() (T&& val)
 			{
 				return __fmtarg_w<T&&>(static_cast<T&&>(val), this->width);
 			}
@@ -734,7 +743,7 @@ namespace zpr
 		{
 			__fmtarg_p_helper(int p) : prec(p) { }
 
-			template <typename T> __fmtarg_p<T&&> operator() (T&& val)
+			template <typename T> inline __fmtarg_p<T&&> operator() (T&& val)
 			{
 				return __fmtarg_p<T&&>(static_cast<T&&>(val), this->prec);
 			}
@@ -746,7 +755,7 @@ namespace zpr
 		{
 			__fmtarg_wp_helper(int w, int p) : width(w), prec(p) { }
 
-			template <typename T> __fmtarg_wp<T&&> operator() (T&& val)
+			template <typename T> inline __fmtarg_wp<T&&> operator() (T&& val)
 			{
 				return __fmtarg_wp<T&&>(static_cast<T&&>(val), this->width, this->prec);
 			}
@@ -826,15 +835,15 @@ namespace zpr
 				if(sv.empty())
 					goto done;
 
-				if(sv[0] == '.')
+				if(sv.size() >= 2 && sv[0] == '.')
 				{
 					sv.remove_prefix(1);
 
-					if(sv.size() > 0 && sv[0] == '-')
+					if(sv[0] == '-')
 					{
 						// just ignore negative precision i guess.
 						size_t k = 1;
-						while(sv.size() > k && ('0' <= sv[k]) && (sv[k] <= '9'))
+						while(sv.size() > k && ('0' <= sv[k] && sv[k] <= '9'))
 							k++;
 
 						sv.remove_prefix(k);
@@ -845,7 +854,7 @@ namespace zpr
 						fmt_args.precision = 0;
 
 						size_t k = 0;
-						while(sv.size() > k && (sv[k] >= '0') && (sv[k] <= '9'))
+						while(sv.size() > k && ('0' <= sv[k] && sv[k] <= '9'))
 							(fmt_args.precision = 10 * fmt_args.precision + (sv[k] - '0')), k++;
 
 						sv.remove_prefix(k);
@@ -853,7 +862,7 @@ namespace zpr
 				}
 
 				if(!sv.empty())
-					(fmt_args.specifier = sv[0]), sv.remove_prefix(1);
+					fmt_args.specifier = sv[0];
 			}
 
 		done:
@@ -906,23 +915,13 @@ namespace zpr
 
 
 
-		// note that all the base printers need to return the same type, so just do 80 to account for
-		// the base 2 printing.
-		struct __buffer_thingy
-		{
-			static constexpr size_t BUFFER_LEN = 80;
-
-			char* buf = 0;
-			size_t len = 0;
-			char buffer[BUFFER_LEN] = { 0 };
-		};
 
 		// forward declare these
 		template <typename CallbackFn>
 		size_t print_floating(CallbackFn&& cb, double value, format_args args);
 
 		template <typename T>
-		__buffer_thingy print_decimal_integer(T value);
+		char* print_decimal_integer(char* buf, size_t bufsz, T value);
 
 
 
@@ -1045,12 +1044,11 @@ namespace zpr
 				else                        cb('E');
 
 				// output the exponent value
-				char tmp[8] = { 0 };
+				char digits_buf[8] = { };
 				size_t digits_len = 0;
 
-				auto buf = print_decimal_integer(static_cast<int64_t>(tt::abs(expval)));
-				memcpy(tmp, buf.buf, buf.len);
-				digits_len = buf.len;
+				auto buf = print_decimal_integer(digits_buf, 8, static_cast<int64_t>(tt::abs(expval)));
+				digits_len = 8 - (buf - digits_buf);
 
 				len += digits_len + 1;
 				cb(expval < 0 ? '-' : '+');
@@ -1059,7 +1057,7 @@ namespace zpr
 				if(auto tmp = (minwidth - 2) - static_cast<int>(digits_len); tmp > 0)
 					len += tmp, cb('0', tmp);
 
-				cb(tmp, digits_len);
+				cb(buf, digits_len);
 
 				// might need to right-pad spaces
 				if(use_right_pad && args.width > len)
@@ -1249,10 +1247,79 @@ namespace zpr
 		}
 
 
+		template <typename T>
+		char* print_hex_integer(char* buf, size_t bufsz, T value)
+		{
+			constexpr const char lookup_table[] =
+				"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+				"202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+				"404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+				"606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f"
+				"808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
+				"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"
+				"c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
+				"e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff";
+
+			constexpr auto hex_digit = [](int x) -> char {
+				if(0 <= x && x <= 9)
+					return '0' + x;
+
+				return 'a' + x - 10;
+			};
+
+			char* ptr = buf + bufsz;
+
+			// if we have the lookup table, do two digits at a time.
+		#if ZPR_HEXADECIMAL_LOOKUP_TABLE
+
+			constexpr auto copy = [](char* dst, const char* src) {
+				*((uint16_t*) dst) = *((const uint16_t*) src);
+			};
+
+			while(value >= 0x100)
+			{
+				copy((ptr -= 2), &lookup_table[(value & 0xFF) * 2]);
+				value >>= 8;
+			}
+
+			if(value < 0x10)
+				*(--ptr) = hex_digit(value);
+
+			else
+				copy((ptr -= 2), &lookup_table[value * 2]);
+
+		#else
+
+			do {
+				*(--ptr) = hex_digit(value & 0xF);
+				value >>= 4;
+
+			} while(value > 0);
+
+		#endif
+
+			return ptr;
+		}
 
 		template <typename T>
-		__buffer_thingy print_decimal_integer(T value)
+		char* print_binary_integer(char* buf, size_t bufsz, T value)
 		{
+			char* ptr = buf + bufsz;
+
+			do {
+				*(--ptr) = ('0' + (value & 1));
+				value >>= 4;
+
+			} while(value > 0);
+
+			return ptr;
+		}
+
+		template <typename T>
+		char* print_decimal_integer(char* buf, size_t bufsz, T value)
+		{
+			static_assert(sizeof(T) <= 64);
+
 			constexpr const char lookup_table[] =
 				"000102030405060708091011121314151617181920212223242526272829"
 				"303132333435363738394041424344454647484950515253545556575859"
@@ -1267,151 +1334,53 @@ namespace zpr
 					value = -value;
 			}
 
-			auto result = __buffer_thingy();
-			auto& BUFFER_LEN = __buffer_thingy::BUFFER_LEN;
-
-			auto& len = result.len;
-			char* ptr = &result.buffer[0];
+			char* ptr = buf + bufsz;
 
 			// if we have the lookup table, do two digits at a time.
 		#if ZPR_DECIMAL_LOOKUP_TABLE
 
-			if(value == 0)
-			{
-				*(ptr + (BUFFER_LEN - 1) - 1) = '0';
-				len = 1;
-			}
-			else
-			{
-				while(value >= 10)
-				{
-					memcpy(ptr + (BUFFER_LEN - 1) - len - 2, &lookup_table[(value % 100) * 2], 2);
-					value /= 100;
-					len += 2;
-				}
+			constexpr auto copy = [](char* dst, const char* src) {
+				*((uint16_t*) dst) = *((const uint16_t*) src);
+			};
 
-				if(value > 0)
-				{
-					*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value % 10));
-					len++;
-				}
+			while(value >= 100)
+			{
+				copy((ptr -= 2), &lookup_table[(value % 100) * 2]);
+				value /= 100;
 			}
+
+			if(value < 10)
+				*(--ptr) = (value + '0');
+
+			else
+				copy((ptr -= 2), &lookup_table[value * 2]);
 
 		#else
 
 			do {
-				*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value % 10));
+				*(--ptr) = ('0' + (value % 10));
 				value /= 10;
-				len++;
 
 			} while(value > 0);
 
 		#endif
 
 			if(neg)
-			{
-				*(ptr + (BUFFER_LEN - 1) - len - 1) = '-';
-				len++;
-			}
+				*(--ptr) = '-';
 
-			result.buf = result.buffer + (BUFFER_LEN - 1) - len;
-			return result;
-		}
-
-
-
-
-		template <typename T>
-		__buffer_thingy print_hex_integer(T value)
-		{
-			constexpr const char lookup_table[] =
-				"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-				"202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
-				"404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
-				"606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f"
-				"808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
-				"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"
-				"c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
-				"e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff";
-
-			auto result = __buffer_thingy();
-			auto& BUFFER_LEN = __buffer_thingy::BUFFER_LEN;
-
-			auto& len = result.len;
-			char* ptr = &result.buffer[0];
-
-			auto hex_digit = [](int x) -> char {
-				if(0 <= x && x <= 9)
-					return '0' + x;
-
-				return 'a' + x - 10;
-			};
-
-
-			// if we have the lookup table, do two digits at a time.
-		#if ZPR_HEXADECIMAL_LOOKUP_TABLE
-
-			if(value == 0)
-			{
-				*(ptr + (BUFFER_LEN - 1) - 1) = '0';
-				len = 1;
-			}
-			else
-			{
-				while(value >= 0x10)
-				{
-					memcpy(ptr + (BUFFER_LEN - 1) - len - 2, &lookup_table[(value % 0x100) * 2], 2);
-					value /= 0x100;
-					len += 2;
-				}
-
-				if(value > 0)
-				{
-					*(ptr + (BUFFER_LEN - 1) - len - 1) = hex_digit(value % 0x10);
-					len++;
-				}
-			}
-		#else
-
-			do {
-				*(ptr + (BUFFER_LEN - 1) - len - 1) = hex_digit(value % 0x10);
-				value /= 0x10;
-				len++;
-
-			} while(value > 0);
-
-		#endif
-
-			result.buf = result.buffer + (BUFFER_LEN - 1) - len;
-			return result;
+			return ptr;
 		}
 
 		template <typename T>
-		__buffer_thingy print_binary_integer(T value)
+		char* print_integer(char* buf, size_t bufsz, T value, int base)
 		{
-			auto result = __buffer_thingy();
-			auto& BUFFER_LEN = __buffer_thingy::BUFFER_LEN;
-
-			auto& len = result.len;
-			char* ptr = &result.buffer[0];
-
-			do {
-				*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value & 1));
-				value >>= 1;
-				len++;
-			} while(value > 0);
-
-			result.buf = result.buffer + (BUFFER_LEN - 1) - len;
-			return result;
+			if(base == 2)       return print_binary_integer(buf, bufsz, value);
+			else if(base == 16) return print_hex_integer(buf, bufsz, value);
+			else                return print_decimal_integer(buf, bufsz, value);
 		}
 
-		template <typename T>
-		auto print_integer(T value, int base)
-		{
-			if(base == 2)       return print_binary_integer(value);
-			else if(base == 16) return print_hex_integer(value);
-			else                return print_decimal_integer(value);
-		}
+
+
 
 
 
@@ -1479,14 +1448,13 @@ namespace zpr
 				}
 				else if(*pst->end == '}')
 				{
-					cb(pst->beg, pst->end);
+					cb(pst->beg, pst->end + 1);
 
 					// well... we don't need to escape }, but for consistency, we accept either } or }} to print one }.
 					if(pst->end[1] == '}')
 						pst->end++;
 
 					pst->end++;
-					cb('}');
 					pst->beg = pst->end;
 				}
 				else
@@ -1916,131 +1884,138 @@ namespace zpr
 		}
 	};
 
-	template <typename T>
-	struct print_formatter<T, typename tt::enable_if<(
-		tt::is_any<tt::decay_t<T>,
-			signed char,
-			unsigned char,
-			signed short,
-			unsigned short,
-			signed int,
-			unsigned int,
-			signed long,
-			unsigned long,
-			signed long long,
-			unsigned long long>::value
-	)>::type>
+	namespace detail
 	{
-		using Decayed_T = tt::decay_t<T>;
-
-		template <typename Cb>
-		void print(T x, Cb&& cb, format_args args)
+		template <typename T>
+		struct __int_formatter
 		{
-			int base = 10;
-			if((args.specifier | 0x20) == 'x')  base = 16;
-			else if(args.specifier == 'b')      base = 2;
-			else if(args.specifier == 'p')
-			{
-				base = 16;
-				args.specifier = 'x';
-				args.flags |= FMT_FLAG_ALTERNATE;
-			}
+			using Decayed_T = tt::decay_t<T>;
 
-			// if we print base 2 we need 64 digits!
-			char digits[65] = { 0 };
-			int64_t digits_len = 0;
-
+			template <typename Cb>
+			void print(T x, Cb&& cb, format_args args)
 			{
-				detail::__buffer_thingy buf;
-				if constexpr (tt::is_unsigned<Decayed_T>::value)
+				int base = 10;
+				if((args.specifier | 0x20) == 'x')  base = 16;
+				else if(args.specifier == 'b')      base = 2;
+				else if(args.specifier == 'p')
 				{
-					buf = detail::print_integer(x, base);
+					base = 16;
+					args.specifier = 'x';
+					args.flags |= FMT_FLAG_ALTERNATE;
 				}
-				else
+
+				// if we print base 2 we need 64 digits!
+				constexpr size_t digits_buf_sz = 65;
+				char digits_buf[digits_buf_sz] = { };
+
+				char* digits = 0;
+				int64_t digits_len = 0;
+
+
 				{
-					if(base == 16)
+					if constexpr (tt::is_unsigned<Decayed_T>::value)
 					{
-						buf = detail::print_integer(static_cast<tt::make_unsigned_t<Decayed_T>>(x), base);
+						digits = detail::print_integer(digits_buf, digits_buf_sz, x, base);
+						digits_len = digits_buf_sz - (digits - digits_buf);
 					}
 					else
 					{
-						auto abs_val = tt::abs(x);
-						buf = detail::print_integer(abs_val, base);
+						if(base == 16)
+						{
+							digits = detail::print_integer(digits_buf, digits_buf_sz,
+								static_cast<tt::make_unsigned_t<Decayed_T>>(x), base);
+
+							digits_len = digits_buf_sz - (digits - digits_buf);
+						}
+						else
+						{
+							auto abs_val = tt::abs(x);
+							digits = detail::print_integer(digits_buf, digits_buf_sz, abs_val, base);
+
+							digits_len = digits_buf_sz - (digits - digits_buf);
+						}
+					}
+
+					if('A' <= args.specifier && args.specifier <= 'Z')
+						for(size_t i = 0; i < digits_len; i++)
+							digits[i] = static_cast<char>(digits[i] - 0x20);
+				}
+
+				char prefix[4] = { 0 };
+				int64_t prefix_len = 0;
+				int64_t prefix_digits_length = 0;
+				{
+					char* pf = prefix;
+					if(args.prepend_plus())
+						prefix_len++, *pf++ = '+';
+
+					else if(args.prepend_space())
+						prefix_len++, *pf++ = ' ';
+
+					else if(x < 0 && base == 10)
+						prefix_len++, *pf++ = '-';
+
+					if(base != 10 && args.alternate())
+					{
+						*pf++ = '0';
+						*pf++ = (ZPR_HEX_0X_RESPECTS_UPPERCASE ? args.specifier : (args.specifier | 0x20));
+
+						prefix_digits_length += 2;
+						prefix_len += 2;
 					}
 				}
 
-				memcpy(digits, buf.buf, buf.len);
-				digits_len = buf.len;
+				int64_t output_length_with_precision = (args.have_precision()
+					? tt::max(args.precision, digits_len)
+					: digits_len
+				);
 
-				if('A' <= args.specifier && args.specifier <= 'Z')
-					for(size_t i = 0; i < digits_len; i++)
-						digits[i] = static_cast<char>(digits[i] - 0x20);
+				int64_t total_digits_length = prefix_digits_length + digits_len;
+				int64_t normal_length = prefix_len + digits_len;
+				int64_t length_with_precision = prefix_len + output_length_with_precision;
+
+				bool use_precision = args.have_precision();
+				bool use_zero_pad  = args.zero_pad() && args.positive_width() && !use_precision;
+				bool use_left_pad  = !use_zero_pad && args.positive_width();
+				bool use_right_pad = !use_zero_pad && args.negative_width();
+
+				int64_t padding_width = args.width - length_with_precision;
+				int64_t zeropad_width = args.width - normal_length;
+				int64_t precpad_width = args.precision - total_digits_length;
+
+				if(padding_width <= 0) { use_left_pad = false; use_right_pad = false; }
+				if(zeropad_width <= 0) { use_zero_pad = false; }
+				if(precpad_width <= 0) { use_precision = false; }
+
+				// pre-prefix
+				if(use_left_pad) cb(' ', padding_width);
+
+				cb(prefix, prefix_len);
+
+				// post-prefix
+				if(use_zero_pad) cb('0', zeropad_width);
+
+				// prec-string
+				if(use_precision) cb('0', precpad_width);
+
+				cb(digits, digits_len);
+
+				// postfix
+				if(use_right_pad) cb(' ', padding_width);
 			}
+		};
+	}
 
-			char prefix[4] = { 0 };
-			int64_t prefix_len = 0;
-			int64_t prefix_digits_length = 0;
-			{
-				char* pf = prefix;
-				if(args.prepend_plus())
-					prefix_len++, *pf++ = '+';
-
-				else if(args.prepend_space())
-					prefix_len++, *pf++ = ' ';
-
-				else if(x < 0 && base == 10)
-					prefix_len++, *pf++ = '-';
-
-				if(base != 10 && args.alternate())
-				{
-					*pf++ = '0';
-					*pf++ = (ZPR_HEX_0X_RESPECTS_UPPERCASE ? args.specifier : (args.specifier | 0x20));
-
-					prefix_digits_length += 2;
-					prefix_len += 2;
-				}
-			}
-
-			int64_t output_length_with_precision = (args.have_precision()
-				? tt::max(args.precision, digits_len)
-				: digits_len
-			);
-
-			int64_t total_digits_length = prefix_digits_length + digits_len;
-			int64_t normal_length = prefix_len + digits_len;
-			int64_t length_with_precision = prefix_len + output_length_with_precision;
-
-			bool use_precision = args.have_precision();
-			bool use_zero_pad  = args.zero_pad() && args.positive_width() && !use_precision;
-			bool use_left_pad  = !use_zero_pad && args.positive_width();
-			bool use_right_pad = !use_zero_pad && args.negative_width();
-
-			int64_t padding_width = args.width - length_with_precision;
-			int64_t zeropad_width = args.width - normal_length;
-			int64_t precpad_width = args.precision - total_digits_length;
-
-			if(padding_width <= 0) { use_left_pad = false; use_right_pad = false; }
-			if(zeropad_width <= 0) { use_zero_pad = false; }
-			if(precpad_width <= 0) { use_precision = false; }
-
-			// pre-prefix
-			if(use_left_pad) cb(' ', padding_width);
-
-			cb(prefix, prefix_len);
-
-			// post-prefix
-			if(use_zero_pad) cb('0', zeropad_width);
-
-			// prec-string
-			if(use_precision) cb('0', precpad_width);
-
-			cb(digits, digits_len);
-
-			// postfix
-			if(use_right_pad) cb(' ', padding_width);
-		}
-	};
-
+	template <> struct print_formatter<signed char> : detail::__int_formatter<signed char> { };
+	template <> struct print_formatter<unsigned char> : detail::__int_formatter<unsigned char> { };
+	template <> struct print_formatter<signed short> : detail::__int_formatter<signed short> { };
+	template <> struct print_formatter<unsigned short> : detail::__int_formatter<unsigned short> { };
+	template <> struct print_formatter<signed int> : detail::__int_formatter<signed int> { };
+	template <> struct print_formatter<unsigned int> : detail::__int_formatter<unsigned int> { };
+	template <> struct print_formatter<signed long> : detail::__int_formatter<signed long> { };
+	template <> struct print_formatter<unsigned long> : detail::__int_formatter<unsigned long> { };
+	template <> struct print_formatter<signed long long> : detail::__int_formatter<signed long long> { };
+	template <> struct print_formatter<unsigned long long> : detail::__int_formatter<unsigned long long> { };
 
 	template <typename T>
 	struct print_formatter<T, typename tt::enable_if<(
@@ -2055,34 +2030,36 @@ namespace zpr
 		}
 	};
 
-
-
-	template <typename T>
-	struct print_formatter<T, typename tt::enable_if<(
-		tt::is_any<tt::decay_t<T>,
-			float, double>::value
-	)>::type>
+	template <>
+	struct print_formatter<float>
 	{
 		template <typename Cb>
-		void print(T x, Cb&& cb, format_args args)
+		void print(float x, Cb&& cb, format_args args)
 		{
-			if(args.specifier == 'e' || args.specifier == 'E')
-				print_exponent(cb, x, tt::move(args));
+			if(args.specifier == 'e' || args.specifier == 'E')  print_exponent(cb, x, tt::move(args));
+			else                                                print_floating(cb, x, tt::move(args));
+		}
 
-			else
-				print_floating(cb, x, tt::move(args));
+		template <typename Cb>
+		void print(double x, Cb&& cb, format_args args)
+		{
+			if(args.specifier == 'e' || args.specifier == 'E')  print_exponent(cb, x, tt::move(args));
+			else                                                print_floating(cb, x, tt::move(args));
 		}
 	};
 
+	template <>
+	struct print_formatter<double> : print_formatter<float> { };
 
-	template <typename T, size_t N>
-	struct print_formatter<T (&)[N], typename tt::enable_if<(
-		tt::is_any<T, char, const char>::value
-	)>::type>
+	template <size_t N>
+	struct print_formatter<const char (&)[N]>
 	{
-		template <typename Cb> void print(T (&x)[N], Cb&& cb, format_args args)
+		template <typename Cb> void print(const char (&x)[N], Cb&& cb, format_args args)
 			{ detail::print_string(cb, x, N - 1, tt::move(args)); }
 	};
+
+	template <size_t N>
+	struct print_formatter<char (&)[N]> : print_formatter<const char (&)[N]> { };
 
 	template <>
 	struct print_formatter<const char*>
