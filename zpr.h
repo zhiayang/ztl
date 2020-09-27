@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.0.0
+	Version 2.0.1
 	=============
 
 
@@ -187,6 +187,12 @@
 
 	Version History
 	===============
+
+	2.0.1 - 28/09/2020
+	------------------
+	Add `ln` versions of the cprint() functions.
+
+
 
 	2.0.0 - 27/09/2020
 	------------------
@@ -1614,7 +1620,8 @@ namespace zpr
 		template <typename Fn>
 		struct callback_appender
 		{
-			callback_appender(const Fn& callback) : len(0), callback(callback) { }
+			callback_appender(const Fn& callback, bool newline) : len(0), callback(callback), newline(newline) { }
+			~callback_appender() { if(newline) { callback("\n", 1); } }
 
 			inline void operator() (char c) { callback(&c, 1); this->len += 1; }
 			inline void operator() (const tt::str_view& sv) { callback(sv.data(), sv.size()); this->len += sv.size(); }
@@ -1637,6 +1644,7 @@ namespace zpr
 
 		private:
 			size_t len;
+			bool newline;
 			const Fn& callback;
 		};
 
@@ -1699,7 +1707,7 @@ namespace zpr
 	template <size_t fmt_N, typename CallbackFn, typename... Args>
 	size_t cprint(const CallbackFn& callback, const char (&fmt)[fmt_N], Args&&... args)
 	{
-		auto appender = detail::callback_appender(callback);
+		auto appender = detail::callback_appender(callback, /* newline: */ false);
 		detail::print(appender, fmt,
 			tt::forward<Args>(args)...);
 
@@ -1709,7 +1717,27 @@ namespace zpr
 	template <typename CallbackFn, typename... Args>
 	size_t cprint(const CallbackFn& callback, const tt::str_view& fmt, Args&&... args)
 	{
-		auto appender = detail::callback_appender(callback);
+		auto appender = detail::callback_appender(callback, /* newline: */ false);
+		detail::print(appender, fmt,
+			tt::forward<Args>(args)...);
+
+		return appender.size();
+	}
+
+	template <size_t fmt_N, typename CallbackFn, typename... Args>
+	size_t cprintln(const CallbackFn& callback, const char (&fmt)[fmt_N], Args&&... args)
+	{
+		auto appender = detail::callback_appender(callback, /* newline: */ true);
+		detail::print(appender, fmt,
+			tt::forward<Args>(args)...);
+
+		return appender.size();
+	}
+
+	template <typename CallbackFn, typename... Args>
+	size_t cprintln(const CallbackFn& callback, const tt::str_view& fmt, Args&&... args)
+	{
+		auto appender = detail::callback_appender(callback, /* newline: */ true);
 		detail::print(appender, fmt,
 			tt::forward<Args>(args)...);
 
