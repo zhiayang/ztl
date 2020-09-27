@@ -1,18 +1,22 @@
-#!/usr/bin/env sh
-set -e
+#!/usr/bin/env fish
 
-echo "compiling..."
-clang++ -o bench -O3 -std=c++17 benchmark.cpp -lfmt
+if command test benchmark.cpp -nt bench
+	echo "compiling..."
+	clang++ -o bench -O3 -std=c++17 benchmark.cpp -I../../ -lfmt
+end
 
 printf "printf:\t"
-time -f "\t%e real\t%U user\t%S sys" ./bench printf
+time ./bench printf
 
 printf "zpr:\t"
-time -f "\t%e real\t%U user\t%S sys" ./bench zpr
+time ./bench zpr
+
+printf "zpr2:\t"
+time ./bench zpr2
 
 printf "fmt:\t"
-time -f "\t%e real\t%U user\t%S sys" ./bench fmt
+time ./bench fmt
 
 printf "fmt2:\t"
-time -f "\t%e real\t%U user\t%S sys" ./bench fmt2
+time ./bench fmt2
 

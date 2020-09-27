@@ -43,6 +43,11 @@
 
 
 /*
+	Version 2.0.0
+	=============
+
+
+
 	Documentation
 	=============
 
@@ -62,9 +67,6 @@
 	and where the final type specifier (eg. `s`, `d`) is optional. Floating point values will print as if `g` was used. Size
 	specifiers (eg. `lld`) are not supported.
 
-	As with `printf`, you can use `*` to indicate variable width, precision, or both, like this: `{*.*}`; they should preceed
-	the actual value to be printed (just like `printf`! are you seeing a pattern here?)
-
 	The currently supported builtin formatters are:
 	- integral types            (signed/unsigned char/short/int/long/long long) (but not 'char')
 	- floating point types      (float, double, long double)
@@ -75,6 +77,15 @@
 	- enums                     (will print as their integer representation)
 	- std::pair                 (prints as "{ first, second }")
 	- all iterable containers   (with begin(x) and end(x) available -- prints as "[ a, b, ..., c ]")
+
+	For non-constant widths and precisions, there are 3 functions: w(int), p(int), and wp(int, int). these
+	functions return a function object, which you should then call with the actual argument value. usage:
+
+	old: zpr::println("{.*}", 3, M_PI);
+	new: zpr::println("{}", zpr::p(3)(M_PI));
+
+	for wp(), the width is the first argument, and the precision the second argument. Note that you
+	could use this everywhere and not put the widths in the format string at all.
 
 	optional #define macros to control behaviour:
 
@@ -177,7 +188,18 @@
 	Version History
 	===============
 
-	1.6.0 - 27/09/2020
+	2.0.0 - 27/09/2020
+	------------------
+	Completely rewrite the internals; now no longer tuple-based, and we're back to template packs. However,
+	instead of using recursion, we are now expanding with fold expressions. This comes with one drawback, however;
+	we now do not support in-stream width and precision specifiers (eg. {*.s}). instead, we expose 3 new functions,
+	w(), p(), and wp(), which do what their names would suggest; see the documentation above for more info.
+
+	Major version bump due to breaking api change.
+
+
+
+	1.6.0 - 26/09/2020
 	------------------
 	Add the ZPR_FREESTANDING define; see documentation above for details. Also add cprint() and family, which
 	allow using a callback of the form `void (*)(char*, size_t)` -- or a compatible template function object,
@@ -533,128 +555,6 @@ namespace zpr::tt
 		t2 = tt::move(temp);
 	}
 
-	template <size_t Idx, typename... Xs>
-	struct one_tuple_thing
-	{
-	};
-
-	template <size_t Idx, typename T, typename... Xs>
-	struct one_tuple_thing<Idx, T, Xs...> : one_tuple_thing<Idx + 1, Xs...>
-	{
-		using base_type = one_tuple_thing<Idx + 1, Xs...>;
-
-		one_tuple_thing() : value() { }
-
-		template <typename U, typename... Us>
-		one_tuple_thing(U&& x, Us&&... xs) : base_type(tt::forward<Us>(xs)...), value(tt::forward<T>(x)) { }
-
-		template <size_t I>
-		auto& get() &
-		{
-			if constexpr (I == Idx) { return this->value; }
-			else                    { return base_type::template get<I>(); }
-		}
-
-		template <size_t I>
-		auto&& get() &&
-		{
-			if constexpr (I == Idx) { return this->value; }
-			else                    { return base_type::template get<I>(); }
-		}
-
-		template <size_t I>
-		const auto& get() const&
-		{
-			if constexpr (I == Idx) { return this->value; }
-			else                    { return base_type::template get<I>(); }
-		}
-
-		template <size_t I>
-		using value_type = conditional_t<(I == Idx), T, typename base_type::template value_type<I>>;
-
-	private:
-		T value;
-	};
-
-	template <size_t Idx, typename T>
-	struct one_tuple_thing<Idx, T>
-	{
-		one_tuple_thing() : value() { }
-
-		template <typename U>
-		one_tuple_thing(U&& x) : value(tt::forward<U>(x)) { }
-
-		template <size_t I>
-		T& get() & { static_assert(I == Idx, "invalid tuple index"); return this->value; }
-
-		template <size_t I>
-		T&& get() && { static_assert(I == Idx, "invalid tuple index"); return this->value; }
-
-		template <size_t I>
-		const T& get() const& { static_assert(I == Idx, "invalid tuple index"); return this->value; }
-
-		template <size_t>
-		using value_type = T;
-
-	private:
-		T value;
-	};
-
-	template <typename... Args>
-	struct tuple : one_tuple_thing<0, Args...>
-	{
-		tuple() : one_tuple_thing<0, Args...>() { }
-
-		template <typename... Xs>
-		tuple(Xs&&... xs) : one_tuple_thing<0, Args...>(tt::forward<Xs>(xs)...) { }
-
-		template <size_t Idx> auto& get() & { return one_tuple_thing<0, Args...>::template get<Idx>(); }
-		template <size_t Idx> auto&& get() && { return one_tuple_thing<0, Args...>::template get<Idx>(); }
-		template <size_t Idx> const auto& get() const& { return one_tuple_thing<0, Args...>::template get<Idx>(); }
-
-		size_t size() const
-		{
-			return sizeof...(Args);
-		}
-
-		static constexpr size_t tuple_size = sizeof...(Args);
-
-		template <size_t I>
-		using element_type = typename one_tuple_thing<0, Args...>::template value_type<I>;
-	};
-
-	template <>
-	struct tuple<>
-	{
-		static constexpr size_t tuple_size = 0;
-	};
-
-	template <size_t I, typename... Ts> auto& get(tuple<Ts...>& tup) { return tup.template get<I>(); }
-	template <size_t I, typename... Ts> auto&& get(tuple<Ts...>&& tup) { return tup.template get<I>(); }
-	template <size_t I, typename... Ts> const auto& get(const tuple<Ts...>& tup) { return tup.template get<I>(); }
-	template <size_t I, typename... Ts> const auto&& get(const tuple<Ts...>&& tup) { return tup.template get<I>(); }
-
-	template <typename... Args>
-	tuple(Args...) -> tuple<Args...>;
-
-	template <typename... Args>
-	tt::tuple<Args&&...> forward_as_tuple(Args&&... xs)
-	{
-		return tuple<Args&&...>(tt::forward<Args>(xs)...);
-	}
-
-	template <typename>
-	struct tuple_size;
-
-	template <typename... Ts>
-	struct tuple_size<tuple<Ts...>> : integral_constant<size_t, sizeof...(Ts)> { };
-
-	template <size_t, typename>
-	struct tuple_element;
-
-	template <size_t I, typename... Ts>
-	struct tuple_element<I, tuple<Ts...>> { using type = typename tuple<Ts...>::template element_type<I>; };
-
 #endif
 
 	// is_any<X, A, B, ... Z> -> is_same<X, A> || is_same<X, B> || ...
@@ -769,6 +669,86 @@ namespace zpr
 
 	namespace detail
 	{
+		template <typename T>
+		struct __fmtarg_w
+		{
+			__fmtarg_w(__fmtarg_w&&) = delete;
+			__fmtarg_w(const __fmtarg_w&) = delete;
+			__fmtarg_w& operator= (__fmtarg_w&&) = delete;
+			__fmtarg_w& operator= (const __fmtarg_w&) = delete;
+
+			__fmtarg_w(T&& x, int width) : arg(static_cast<T&&>(x)), width(width) { }
+
+			T arg;
+			int width;
+		};
+
+		template <typename T>
+		struct __fmtarg_p
+		{
+			__fmtarg_p(__fmtarg_p&&) = delete;
+			__fmtarg_p(const __fmtarg_p&) = delete;
+			__fmtarg_p& operator= (__fmtarg_p&&) = delete;
+			__fmtarg_p& operator= (const __fmtarg_p&) = delete;
+
+			__fmtarg_p(T&& x, int prec) : arg(static_cast<T&&>(x)), prec(prec) { }
+
+			T arg;
+			int prec;
+		};
+
+		template <typename T>
+		struct __fmtarg_wp
+		{
+			__fmtarg_wp(__fmtarg_wp&&) = delete;
+			__fmtarg_wp(const __fmtarg_wp&) = delete;
+			__fmtarg_wp& operator= (__fmtarg_wp&&) = delete;
+			__fmtarg_wp& operator= (const __fmtarg_wp&) = delete;
+
+			__fmtarg_wp(T&& x, int width, int prec) : arg(static_cast<T&&>(x)), prec(prec), width(width) { }
+
+			T arg;
+			int prec;
+			int width;
+		};
+
+		struct __fmtarg_w_helper
+		{
+			__fmtarg_w_helper(int w) : width(w) { }
+
+			template <typename T> __fmtarg_w<T&&> operator() (T&& val)
+			{
+				return __fmtarg_w<T&&>(static_cast<T&&>(val), this->width);
+			}
+
+			int width;
+		};
+
+		struct __fmtarg_p_helper
+		{
+			__fmtarg_p_helper(int p) : prec(p) { }
+
+			template <typename T> __fmtarg_p<T&&> operator() (T&& val)
+			{
+				return __fmtarg_p<T&&>(static_cast<T&&>(val), this->prec);
+			}
+
+			int prec;
+		};
+
+		struct __fmtarg_wp_helper
+		{
+			__fmtarg_wp_helper(int w, int p) : width(w), prec(p) { }
+
+			template <typename T> __fmtarg_wp<T&&> operator() (T&& val)
+			{
+				return __fmtarg_wp<T&&>(static_cast<T&&>(val), this->width, this->prec);
+			}
+
+			int width;
+			int prec;
+		};
+
 		struct dummy_appender
 		{
 			void operator() (char c);
@@ -799,13 +779,11 @@ namespace zpr
 			decltype(end(tt::declval<T&>()))
 		>> : tt::true_type { };
 
-		static inline tt::tuple<format_args, bool, bool> parse_fmt_spec(tt::str_view sv)
+		static inline format_args parse_fmt_spec(tt::str_view sv)
 		{
 			// remove the first and last (they are { and })
 			sv = sv.drop(1).drop_last(1);
 
-			bool need_prec = false;
-			bool need_width = false;
 			format_args fmt_args = { };
 			{
 				while(sv.size() > 0)
@@ -826,14 +804,7 @@ namespace zpr
 				if(sv.empty())
 					goto done;
 
-				if(sv[0] == '*')
-				{
-					// note: if you use *, then the negative width is ignored!
-					need_width = true;
-					sv.remove_prefix(1);
-					fmt_args.flags |= FMT_FLAG_HAVE_WIDTH;
-				}
-				else if('0' <= sv[0] && sv[0] <= '9')
+				if('0' <= sv[0] && sv[0] <= '9')
 				{
 					fmt_args.flags |= FMT_FLAG_HAVE_WIDTH;
 
@@ -853,13 +824,7 @@ namespace zpr
 				{
 					sv.remove_prefix(1);
 
-					if(sv.size() > 0 && sv[0] == '*')
-					{
-						sv.remove_prefix(1);
-						need_prec = true;
-						fmt_args.flags |= FMT_FLAG_HAVE_PRECISION;
-					}
-					else if(sv.size() > 0 && sv[0] == '-')
+					if(sv.size() > 0 && sv[0] == '-')
 					{
 						// just ignore negative precision i guess.
 						size_t k = 1;
@@ -886,69 +851,8 @@ namespace zpr
 			}
 
 		done:
-			return { fmt_args, need_width, need_prec };
+			return fmt_args;
 		}
-
-		template <typename CallbackFn, typename Fn, typename Tuple, size_t N = 0>
-		void visit_one(CallbackFn&& cb, Tuple&& args, size_t idx, format_args fmt_args, Fn&& fn)
-		{
-			using elm_t = typename tt::tuple_element<N, Tuple>::type;
-
-			if(N == idx)
-			{
-				fn(cb, tt::move(fmt_args),
-					tt::forward<elm_t>(tt::get<N>(args))
-				);
-				return;
-			}
-
-			if constexpr (N + 1 < tt::tuple_size<Tuple>::value)
-				return visit_one<CallbackFn, Fn, Tuple, N + 1>(tt::forward<CallbackFn>(cb), tt::forward<Tuple>(args),
-					idx, tt::move(fmt_args), tt::forward<Fn>(fn));
-		}
-
-		template <typename CallbackFn, typename Fn, typename Tuple, size_t N = 0>
-		void visit_two(CallbackFn&& cb, Tuple&& args, size_t idx, format_args fmt_args, Fn&& fn)
-		{
-			using elm1_t = typename tt::tuple_element<N + 0, Tuple>::type;
-			using elm2_t = typename tt::tuple_element<N + 1, Tuple>::type;
-
-			if(N == idx)
-			{
-				fn(cb, tt::move(fmt_args),
-					tt::forward<elm1_t>(tt::get<N>(args)),
-					tt::forward<elm2_t>(tt::get<N + 1>(args))
-				);
-				return;
-			}
-
-			if constexpr (N + 2 < tt::tuple_size<Tuple>::value)
-				return visit_two<CallbackFn, Fn, Tuple, N + 1>(tt::forward<CallbackFn>(cb), tt::forward<Tuple>(args),
-					idx, tt::move(fmt_args), tt::forward<Fn>(fn));
-		}
-
-		template <typename CallbackFn, typename Fn, typename Tuple, size_t N = 0>
-		void visit_three(CallbackFn&& cb, Tuple&& args, size_t idx, format_args fmt_args, Fn&& fn)
-		{
-			using elm1_t = typename tt::tuple_element<N + 0, Tuple>::type;
-			using elm2_t = typename tt::tuple_element<N + 1, Tuple>::type;
-			using elm3_t = typename tt::tuple_element<N + 2, Tuple>::type;
-
-			if(N == idx)
-			{
-				fn(cb, tt::move(fmt_args),
-					tt::forward<elm1_t>(tt::get<N>(args)),
-					tt::forward<elm2_t>(tt::get<N + 1>(args)),
-					tt::forward<elm3_t>(tt::get<N + 2>(args))
-				);
-				return;
-			}
-
-			if constexpr (N + 3 < tt::tuple_size<Tuple>::value)
-				return visit_three<CallbackFn, Fn, Tuple, N + 1>(tt::forward<CallbackFn>(cb), tt::forward<Tuple>(args),
-					idx, tt::move(fmt_args), tt::forward<Fn>(fn));
-		}
-
 
 		template <typename CallbackFn>
 		size_t print_string(CallbackFn&& cb, const char* str, size_t len, format_args args)
@@ -962,12 +866,12 @@ namespace zpr
 			auto padding_width = args.width - string_length;
 
 			if(args.positive_width() && padding_width > 0)
-				cb(' ', padding_width), ret += padding_width;
+				cb(args.zero_pad() ? '0' : ' ', padding_width), ret += padding_width;
 
 			cb(str, string_length);
 
 			if(args.negative_width() && padding_width > 0)
-				cb(' ', padding_width), ret += padding_width;
+				cb(args.zero_pad() ? '0' : ' ', padding_width), ret += padding_width;
 
 			return ret;
 		}
@@ -1505,205 +1409,114 @@ namespace zpr
 
 
 
-
-
-
-
-
-
-
-		template <typename CallbackFn, typename Tuple>
-		void print(CallbackFn&& cb, const char* fmt, size_t len, Tuple&& args)
+		struct __print_state_t
 		{
-			auto beg = fmt;
-			auto end = fmt;
+			size_t len;
+			const char* fmt;
+			const char* beg;
+			const char* end;
+		};
 
-			size_t tup_idx = 0;
+		template <typename CallbackFn, typename T>
+		void print_one(CallbackFn&& cb, format_args fmt_args, T&& value)
+		{
+			using Decayed_T = tt::decay_t<T>;
 
-			while(end - fmt <= len && end && *end)
+			static_assert(has_formatter_v<T> || has_formatter_v<Decayed_T>,
+				"no formatter for type");
+
+			if constexpr (has_formatter<T>::value)
 			{
-				if(*end == '{')
+				print_formatter<T>().print(tt::forward<T>(value),
+					tt::forward<CallbackFn>(cb), tt::move(fmt_args));
+			}
+			else
+			{
+				print_formatter<Decayed_T>().print(tt::forward<T>(value),
+					tt::forward<CallbackFn>(cb), tt::move(fmt_args));
+			}
+		}
+
+		template <typename CallbackFn, typename T>
+		void skip_fmts(__print_state_t* pst, CallbackFn&& cb, T&& value)
+		{
+			while(pst->end - pst->fmt <= pst->len && pst->end && *pst->end)
+			{
+				if(*pst->end == '{')
 				{
-					auto tmp = end;
+					auto tmp = pst->end;
 
 					// flush whatever we have first:
-					cb(beg, end);
-					if(end[1] == '{')
+					cb(pst->beg, pst->end);
+					if(pst->end[1] == '{')
 					{
 						cb('{');
-						end += 2;
-						beg = end;
+						pst->end += 2;
+						pst->beg = pst->end;
 						continue;
 					}
 
-					while(end[0] && end[0] != '}')
-						end++;
+					while(pst->end[0] && pst->end[0] != '}')
+						pst->end++;
 
 					// owo
-					if(!end[0])
+					if(!pst->end[0])
 						return;
 
-					end++;
+					pst->end++;
 
-					auto fmts = parse_fmt_spec(tt::str_view(tmp, end - tmp));
+					auto fmt_spec = parse_fmt_spec(tt::str_view(tmp, pst->end - tmp));
+					print_one(tt::forward<CallbackFn>(cb), tt::move(fmt_spec), tt::forward<T>(value));
 
-					auto& fmt_spec = tt::get<0>(fmts);
-					auto& width    = tt::get<1>(fmts);
-					auto& prec     = tt::get<2>(fmts);
-
-					constexpr auto perform_print = [](auto&& x, auto&& cb, format_args fmt_args) {
-
-						using Decayed_T = tt::decay_t<decltype(x)>;
-
-						static_assert(has_formatter_v<decltype(x)> || has_formatter_v<Decayed_T>,
-							"no formatter for type");
-
-						if constexpr (has_formatter<decltype(x)>::value)
-						{
-							print_formatter<decltype(x)>().print(tt::forward<decltype(x)>(x),
-								cb, tt::move(fmt_args));
-						}
-						else
-						{
-							print_formatter<Decayed_T>().print(tt::forward<decltype(x)>(x),
-								cb, tt::move(fmt_args));
-						}
-					};
-
-					if(width && prec)
-					{
-						if constexpr (tt::tuple_size<Tuple>::value >= 3)
-						{
-							visit_three(cb, tt::forward<Tuple>(args), tup_idx, tt::move(fmt_spec),
-								[&perform_print](auto&& cb, format_args fmt_args, auto&& width, auto&& prec, auto&& x) {
-
-									if constexpr (tt::is_integral_v<tt::remove_cv_t<tt::decay_t<decltype(width)>>>)
-										fmt_args.set_width(width);
-									else
-										cb("<non-integral width>");
-
-									if constexpr (tt::is_integral_v<tt::remove_cv_t<tt::decay_t<decltype(prec)>>>)
-										fmt_args.set_precision(prec);
-									else
-										cb("<non-integral precision>");
-
-									perform_print(
-										tt::forward<decltype(x)>(x),
-										tt::forward<decltype(cb)>(cb),
-										tt::move(fmt_args)
-									);
-								});
-						}
-						else
-						{
-							cb("<missing width and prec>");
-						}
-
-						tup_idx += 3;
-					}
-					else if(width)
-					{
-						if constexpr (tt::tuple_size<Tuple>::value >= 2)
-						{
-							visit_two(cb, tt::forward<Tuple>(args), tup_idx, tt::move(fmt_spec),
-								[&perform_print](auto&& cb, format_args fmt_args, auto&& width, auto&& x) {
-
-									if constexpr (tt::is_integral_v<tt::remove_cv_t<tt::decay_t<decltype(width)>>>)
-										fmt_args.set_width(width);
-									else
-										cb("<non-integral width>");
-
-									perform_print(
-										tt::forward<decltype(x)>(x),
-										tt::forward<decltype(cb)>(cb),
-										tt::move(fmt_args)
-									);
-								});
-						}
-						else
-						{
-							cb("<missing width>");
-						}
-
-						tup_idx += 2;
-					}
-					else if(prec)
-					{
-						if constexpr (tt::tuple_size<Tuple>::value >= 2)
-						{
-							visit_two(cb, tt::forward<Tuple>(args), tup_idx, tt::move(fmt_spec),
-								[&perform_print](auto&& cb, format_args fmt_args, auto&& prec, auto&& x) {
-
-									if constexpr (tt::is_integral_v<tt::remove_cv_t<tt::decay_t<decltype(prec)>>>)
-										fmt_args.set_precision(prec);
-									else
-										cb("<non-integral precision>");
-
-									perform_print(
-										tt::forward<decltype(x)>(x),
-										tt::forward<decltype(cb)>(cb),
-										tt::move(fmt_args)
-									);
-								});
-						}
-						else
-						{
-							cb("<missing prec>");
-						}
-
-						tup_idx += 2;
-					}
-					else
-					{
-						if constexpr (tt::tuple_size<Tuple>::value >= 1)
-						{
-							visit_one(cb, tt::forward<Tuple>(args), tup_idx, tt::move(fmt_spec),
-								[&perform_print](auto&& cb, format_args fmt_args, auto&& x) {
-
-									perform_print(
-										tt::forward<decltype(x)>(x),
-										tt::forward<decltype(cb)>(cb),
-										tt::move(fmt_args)
-									);
-								});
-						}
-						else
-						{
-							cb("<missing value>");
-						}
-
-						tup_idx += 1;
-					}
-
-					beg = end;
+					pst->beg = pst->end;
+					break;
 				}
-				else if(*end == '}')
+				else if(*pst->end == '}')
 				{
-					cb(beg, end);
+					cb(pst->beg, pst->end);
 
 					// well... we don't need to escape }, but for consistency, we accept either } or }} to print one }.
-					if(end[1] == '}')
-						end++;
+					if(pst->end[1] == '}')
+						pst->end++;
 
-					end++;
+					pst->end++;
 					cb('}');
-					beg = end;
+					pst->beg = pst->end;
 				}
 				else
 				{
-					end++;
+					pst->end++;
 				}
 			}
+		}
+
+
+
+
+
+
+
+		template <typename CallbackFn, typename... Args>
+		void print(CallbackFn&& cb, tt::str_view sv, Args&&... args)
+		{
+			__print_state_t st;
+			st.len = sv.size();
+			st.fmt = sv.data();
+			st.beg = sv.data();
+			st.end = sv.data();
+
+			(skip_fmts(&st, tt::forward<CallbackFn>(cb), tt::forward<Args>(args)), ...);
 
 			// flush
-			cb(beg, end);
+			cb(st.beg, st.len - (st.beg - st.fmt));
 		}
 
-		template <size_t N, typename CallbackFn, typename Tuple>
-		void print(CallbackFn&& cb, const char (&fmt)[N], Tuple&& args)
+		template <size_t N, typename CallbackFn, typename... Args>
+		void print(CallbackFn&& cb, const char (&fmt)[N], Args&&... args)
 		{
-			print(cb, fmt, N - 1, tt::forward<Tuple>(args));
+			print(cb, tt::str_view(fmt, N - 1), tt::forward<Args>(args)...);
 		}
+
 
 
 	#if ZPR_USE_STD
@@ -1887,7 +1700,8 @@ namespace zpr
 	size_t cprint(const CallbackFn& callback, const char (&fmt)[fmt_N], Args&&... args)
 	{
 		auto appender = detail::callback_appender(callback);
-		detail::print(appender, fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+		detail::print(appender, fmt,
+			tt::forward<Args>(args)...);
 
 		return appender.size();
 	}
@@ -1896,7 +1710,8 @@ namespace zpr
 	size_t cprint(const CallbackFn& callback, const tt::str_view& fmt, Args&&... args)
 	{
 		auto appender = detail::callback_appender(callback);
-		detail::print(appender, fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
+		detail::print(appender, fmt,
+			tt::forward<Args>(args)...);
 
 		return appender.size();
 	}
@@ -1905,7 +1720,8 @@ namespace zpr
 	size_t sprint(char* buf, size_t len, const char (&fmt)[fmt_N], Args&&... args)
 	{
 		auto appender = detail::buffer_appender(buf, len);
-		detail::print(appender, fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+		detail::print(appender, fmt,
+			tt::forward<Args>(args)...);
 
 		return appender.size();
 	}
@@ -1914,7 +1730,8 @@ namespace zpr
 	size_t sprint(char* buf, size_t len, const tt::str_view& fmt, Args&&... args)
 	{
 		auto appender = detail::buffer_appender(buf, len);
-		detail::print(appender, fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
+		detail::print(appender, fmt,
+			tt::forward<Args>(args)...);
 
 		return appender.size();
 	}
@@ -1928,8 +1745,8 @@ namespace zpr
 	size_t print(const char (&fmt)[fmt_N], Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret),
-			fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret), fmt,
+			tt::forward<Args>(args)...);
 
 		return ret;
 	}
@@ -1938,8 +1755,8 @@ namespace zpr
 	size_t println(const char (&fmt)[fmt_N], Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret),
-			fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret), fmt,
+			tt::forward<Args>(args)...);
 
 		return ret;
 	}
@@ -1949,8 +1766,8 @@ namespace zpr
 	size_t fprint(FILE* file, const char (&fmt)[fmt_N], Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret),
-			fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret), fmt,
+			tt::forward<Args>(args)...);
 
 		return ret;
 	}
@@ -1959,8 +1776,8 @@ namespace zpr
 	size_t fprintln(FILE* file, const char (&fmt)[fmt_N], Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret),
-			fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret), fmt,
+			tt::forward<Args>(args)...);
 
 		return ret;
 	}
@@ -1970,8 +1787,8 @@ namespace zpr
 	size_t print(const tt::str_view& fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret),
-			fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret), fmt,
+			tt::forward<Args>(args)...);
 
 		return ret;
 	}
@@ -1980,8 +1797,8 @@ namespace zpr
 	size_t println(const tt::str_view& fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret),
-			fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret), fmt,
+			tt::forward<Args>(args)...);
 
 		return ret;
 	}
@@ -1991,8 +1808,8 @@ namespace zpr
 	size_t fprint(FILE* file, const tt::str_view& fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret),
-			fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret), fmt,
+			tt::forward<Args>(args)...);
 
 		return ret;
 	}
@@ -2001,8 +1818,8 @@ namespace zpr
 	size_t fprintln(FILE* file, const tt::str_view& fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret),
-			fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
+		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret), fmt,
+			tt::forward<Args>(args)...);
 
 		return ret;
 	}
@@ -2020,12 +1837,56 @@ namespace zpr
 
 
 
+	inline detail::__fmtarg_w_helper w(int width)
+	{
+		return detail::__fmtarg_w_helper(width);
+	}
 
+	inline detail::__fmtarg_p_helper p(int prec)
+	{
+		return detail::__fmtarg_p_helper(prec);
+	}
 
-
+	inline detail::__fmtarg_wp_helper wp(int width, int prec)
+	{
+		return detail::__fmtarg_wp_helper(width, prec);
+	}
 
 
 	// formatters lie here.
+	template <typename T>
+	struct print_formatter<detail::__fmtarg_w<T>>
+	{
+		template <typename Cb, typename F = detail::__fmtarg_w<T>>
+		void print(F&& x, Cb&& cb, format_args args)
+		{
+			args.set_width(x.width);
+			detail::print_one(tt::forward<Cb>(cb), tt::move(args), tt::forward<T>(x.arg));
+		}
+	};
+
+	template <typename T>
+	struct print_formatter<detail::__fmtarg_p<T>>
+	{
+		template <typename Cb, typename F = detail::__fmtarg_p<T>>
+		void print(F&& x, Cb&& cb, format_args args)
+		{
+			args.set_precision(x.prec);
+			detail::print_one(tt::forward<Cb>(cb), tt::move(args), tt::forward<T>(x.arg));
+		}
+	};
+
+	template <typename T>
+	struct print_formatter<detail::__fmtarg_wp<T>>
+	{
+		template <typename Cb, typename F = detail::__fmtarg_wp<T>>
+		void print(F&& x, Cb&& cb, format_args args)
+		{
+			args.set_width(x.width);
+			args.set_precision(x.prec);
+			detail::print_one(tt::forward<Cb>(cb), tt::move(args), tt::forward<T>(x.arg));
+		}
+	};
 
 	template <typename T>
 	struct print_formatter<T, typename tt::enable_if<(
@@ -2162,7 +2023,7 @@ namespace zpr
 		void print(T x, Cb&& cb, format_args args)
 		{
 			using underlying = tt::underlying_type_t<tt::decay_t<T>>;
-			print_formatter<underlying>().print(static_cast<underlying>(x), cb, tt::move(args));
+			detail::print_one(tt::forward<Cb>(cb), tt::move(args), static_cast<underlying>(x));
 		}
 	};
 
@@ -2227,7 +2088,7 @@ namespace zpr
 		void print(const void* x, Cb&& cb, format_args args)
 		{
 			args.specifier = 'p';
-			print_formatter<uintptr_t>().print(reinterpret_cast<uintptr_t>(x), cb, tt::move(args));
+			print_one(tt::forward<Cb>(cb), tt::move(args), reinterpret_cast<uintptr_t>(x));
 		}
 	};
 
@@ -2267,7 +2128,7 @@ namespace zpr
 			cb("[");
 			for(auto it = begin(x);;)
 			{
-				detail::print(cb, "{}", tt::forward_as_tuple(*it));
+				detail::print_one(cb, args, *it);
 				++it;
 
 				if(it != end(x)) cb(", ");
@@ -2285,8 +2146,8 @@ namespace zpr
 	std::string sprint(const char (&fmt)[fmt_N], Args&&... args)
 	{
 		std::string buf;
-		detail::print(detail::string_appender(buf),
-			fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+		detail::print(detail::string_appender(buf), fmt,
+			tt::forward<Args>(args)...);
 
 		return buf;
 	}
@@ -2295,8 +2156,8 @@ namespace zpr
 	std::string sprint(const tt::str_view& fmt, Args&&... args)
 	{
 		std::string buf;
-		detail::print(detail::string_appender(buf), fmt.data(), fmt.size(),
-			tt::forward_as_tuple(args...));
+		detail::print(detail::string_appender(buf), fmt,
+			tt::forward<Args>(args)...);
 
 		return buf;
 	}
@@ -2308,9 +2169,9 @@ namespace zpr
 		void print(const std::pair<A, B>& x, Cb&& cb, format_args args)
 		{
 			cb("{ ");
-			detail::print(cb, "{}", tt::forward_as_tuple(x.first));
+			detail::print_one(tt::forward<Cb>(cb), args, tt::forward<A>(x.first));
 			cb(", ");
-			detail::print(cb, "{}", tt::forward_as_tuple(x.second));
+			detail::print_one(tt::forward<Cb>(cb), args, tt::forward<B>(x.second));
 			cb(" }");
 		}
 	};
