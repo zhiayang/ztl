@@ -96,6 +96,16 @@
 		this is *TRUE* by default. controls whether we use a lookup table to increase the speed of
 		hex printing. this uses 1025 bytes.
 
+	- ZPR_FREESTANDING
+		this is *FALSE by default; controls whether or not a standard library implementation is
+		available. if not, then the following changes are made:
+		(a) the print() family of functions that would print to stdout, and the fprint() family that
+			would print to a FILE* are no longer available.
+
+		(b) memset(), memcpy(), memmove(), strlen(), and strncpy() are forward declared according to
+			the C library specifications, but they are not defined. they are expected to be defined
+			elsewhere in the program.
+
 
 	Custom Formatters
 	=================
@@ -111,6 +121,54 @@
 
 
 
+	Function List
+	=============
+
+	the type 'tt::str_view' is an simplified version of std::string_view, and has
+	implicit constructors for 'const char*' parameters. for string literals, the templated
+	reference-to-array overload will be selected.
+
+	for user-defined string-like types, feel free to implement operator tt::str_view() for
+	an implicit conversion to be able to use those as a format string.
+
+	* print to a callback function, given by the templated parameter 'callback'.
+	* it should be a function object defining "operator() (const char*, size_t)",
+	* and should print the string pointed to by the first argument, with length
+	* specified by the second argument.
+	size_t cprint(const CallbackFn& callback, const tt::str_view& fmt, Args&&... args);
+	size_t cprint(const CallbackFn& callback, const char (&fmt)[fmt_N], Args&&... args);
+
+	* print to a buffer, given by the pointer 'buf', with maximum size 'len'.
+	* no NULL terminator will be appended to the buffer, including in the situation
+	* where the buffer is maximally filled; thus you might want to reserve space for a NULL
+	* byte if necessary.
+	size_t sprint(char* buf, size_t len, const tt::str_view& fmt, Args&&... args);
+	size_t sprint(char* buf, size_t len, const char (&fmt)[fmt_N], Args&&... args);
+
+	* only available if ZPR_USE_STD == 1: print to a std::string
+	std::string sprint(const tt::str_view& fmt, Args&&... args);
+	std::string sprint(const char (&fmt)[fmt_N], Args&&... args);
+
+	* only available if ZPR_FREESTANDING != 0: print to stdout.
+	size_t print(const tt::str_view& fmt, Args&&... args);
+	size_t print(const char (&fmt)[fmt_N], Args&&... args);
+
+	* only available if ZPR_FREESTANDING != 0: print to stdout, followed by a newline '\n'.
+	size_t println(const tt::str_view& fmt, Args&&... args);
+	size_t println(const char (&fmt)[fmt_N], Args&&... args);
+
+	* only available if ZPR_FREESTANDING != 0: print to the specified FILE*
+	size_t fprint(FILE* file, const tt::str_view& fmt, Args&&... args);
+	size_t fprint(FILE* file, const char (&fmt)[fmt_N], Args&&... args);
+
+	* only available if ZPR_FREESTANDING != 0: print to the specified FILE*, followed by a newline '\n'.
+	size_t fprintln(FILE* file, const char (&fmt)[fmt_N], Args&&... args);
+	size_t fprintln(FILE* file, const tt::str_view& fmt, Args&&... args);
+
+
+
+
+
 
 
 
@@ -118,6 +176,18 @@
 
 	Version History
 	===============
+
+	1.6.0 - 27/09/2020
+	------------------
+	Add the ZPR_FREESTANDING define; see documentation above for details. Also add cprint() and family, which
+	allow using a callback of the form `void (*)(char*, size_t)` -- or a compatible template function object,
+	to print.
+
+	Bug fixes:
+	- fix printing integer zeroes.
+	- fix printing hex digits.
+
+
 
 	1.5.0 - 10/09/2020
 	------------------
@@ -195,10 +265,8 @@
 */
 
 #include <cfloat>
-#include <cstdio>
-#include <cstring>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 #ifndef ZPR_HEX_0X_RESPECTS_UPPERCASE
 	#define ZPR_HEX_0X_RESPECTS_UPPERCASE 0
@@ -216,7 +284,28 @@
 	#define ZPR_USE_STD 1
 #endif
 
-#if ZPR_USE_STD
+#ifndef ZPR_FREESTANDING
+	#define ZPR_FREESTANDING 0
+#endif
+
+#if !ZPR_FREESTANDING
+	#include <cstdio>
+	#include <cstring>
+#else
+
+	#undef ZPR_USE_STD
+	#define ZPR_USE_STD 0
+
+	extern "C" void* memset(void* s, int c, size_t n);
+	extern "C" void* memcpy(void* dest, const void* src, size_t n);
+	extern "C" void* memmove(void* dest, const void* src, size_t n);
+
+	extern "C" int strcmp(const char* s1, const char* s2);
+	extern "C" int strncmp(const char* s1, const char* s2, size_t n);
+
+#endif
+
+#if !ZPR_FREESTANDING && ZPR_USE_STD
 	#include <string>
 	#include <string_view>
 	#include <type_traits>
@@ -1277,27 +1366,35 @@ namespace zpr
 			// if we have the lookup table, do two digits at a time.
 		#if ZPR_DECIMAL_LOOKUP_TABLE
 
-			while(value >= 10)
+			if(value == 0)
 			{
-				memcpy(ptr + (BUFFER_LEN - 1) - len - 2, &lookup_table[(value % 100) * 2], 2);
-				value /= 100;
-				len += 2;
+				*(ptr + (BUFFER_LEN - 1) - 1) = '0';
+				len = 1;
 			}
-
-			if(value > 0)
+			else
 			{
-				*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value % 10));
-				len++;
+				while(value >= 10)
+				{
+					memcpy(ptr + (BUFFER_LEN - 1) - len - 2, &lookup_table[(value % 100) * 2], 2);
+					value /= 100;
+					len += 2;
+				}
+
+				if(value > 0)
+				{
+					*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value % 10));
+					len++;
+				}
 			}
 
 		#else
 
-			while(value > 0)
-			{
+			do {
 				*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value % 10));
 				value /= 10;
 				len++;
-			}
+
+			} while(value > 0);
 
 		#endif
 
@@ -1337,34 +1434,41 @@ namespace zpr
 				if(0 <= x && x <= 9)
 					return '0' + x;
 
-				return 'a' + x;
+				return 'a' + x - 10;
 			};
 
 
 			// if we have the lookup table, do two digits at a time.
 		#if ZPR_HEXADECIMAL_LOOKUP_TABLE
 
-			while(value >= 0x10)
+			if(value == 0)
 			{
-				memcpy(ptr + (BUFFER_LEN - 1) - len - 2, &lookup_table[(value % 0x100) * 2], 2);
-				value /= 0x100;
-				len += 2;
+				*(ptr + (BUFFER_LEN - 1) - 1) = '0';
+				len = 1;
 			}
-
-			if(value > 0)
+			else
 			{
-				*(ptr + (BUFFER_LEN - 1) - len - 1) = hex_digit(value % 0x10);
-				len++;
-			}
+				while(value >= 0x10)
+				{
+					memcpy(ptr + (BUFFER_LEN - 1) - len - 2, &lookup_table[(value % 0x100) * 2], 2);
+					value /= 0x100;
+					len += 2;
+				}
 
+				if(value > 0)
+				{
+					*(ptr + (BUFFER_LEN - 1) - len - 1) = hex_digit(value % 0x10);
+					len++;
+				}
+			}
 		#else
 
-			while(value > 0)
-			{
+			do {
 				*(ptr + (BUFFER_LEN - 1) - len - 1) = hex_digit(value % 0x10);
 				value /= 0x10;
 				len++;
-			}
+
+			} while(value > 0);
 
 		#endif
 
@@ -1381,12 +1485,11 @@ namespace zpr
 			auto& len = result.len;
 			char* ptr = &result.buffer[0];
 
-			while(value > 0)
-			{
+			do {
 				*(ptr + (BUFFER_LEN - 1) - len - 1) = ('0' + (value & 1));
 				value >>= 1;
 				len++;
-			}
+			} while(value > 0);
 
 			result.buf = result.buffer + (BUFFER_LEN - 1) - len;
 			return result;
@@ -1602,6 +1705,29 @@ namespace zpr
 			print(cb, fmt, N - 1, tt::forward<Tuple>(args));
 		}
 
+
+	#if ZPR_USE_STD
+		struct string_appender
+		{
+			string_appender(std::string& buf) : buf(buf) { }
+
+			inline void operator() (char c) { this->buf += c; }
+			inline void operator() (const tt::str_view& sv) { this->buf += std::string_view(sv.data(), sv.size()); }
+			inline void operator() (char c, size_t n) { this->buf.resize(this->buf.size() + n, c); }
+			inline void operator() (const char* begin, const char* end) { this->buf.append(begin, end); }
+			inline void operator() (const char* begin, size_t len) { this->buf.append(begin, begin + len); }
+
+			string_appender(string_appender&&) = delete;
+			string_appender(const string_appender&) = delete;
+			string_appender& operator= (string_appender&&) = delete;
+			string_appender& operator= (const string_appender&) = delete;
+
+		private:
+			std::string& buf;
+		};
+	#endif
+
+	#if !ZPR_FREESTANDING
 		template <size_t Limit, bool Newline>
 		struct file_appender
 		{
@@ -1670,6 +1796,38 @@ namespace zpr
 			char* ptr = &buf[0];
 			size_t& written;
 		};
+	#endif
+
+		template <typename Fn>
+		struct callback_appender
+		{
+			callback_appender(const Fn& callback) : len(0), callback(callback) { }
+
+			inline void operator() (char c) { callback(&c, 1); this->len += 1; }
+			inline void operator() (const tt::str_view& sv) { callback(sv.data(), sv.size()); this->len += sv.size(); }
+			inline void operator() (const char* begin, const char* end) { callback(begin, end - begin); this->len += (end - begin); }
+			inline void operator() (const char* begin, size_t len) { callback(begin, len); this->len += len; }
+			inline void operator() (char c, size_t n)
+			{
+				for(size_t i = 0; i < n; i++)
+					callback(&c, 1);
+
+				this->len += n;
+			}
+
+			callback_appender(callback_appender&&) = delete;
+			callback_appender(const callback_appender&) = delete;
+			callback_appender& operator= (callback_appender&&) = delete;
+			callback_appender& operator= (const callback_appender&) = delete;
+
+			size_t size() { return this->len; }
+
+		private:
+			size_t len;
+			const Fn& callback;
+		};
+
+
 
 		struct buffer_appender
 		{
@@ -1719,32 +1877,52 @@ namespace zpr
 			size_t len = 0;
 		};
 
-	#if ZPR_USE_STD
-		struct string_appender
-		{
-			string_appender(std::string& buf) : buf(buf) { }
-
-			inline void operator() (char c) { this->buf += c; }
-			inline void operator() (const tt::str_view& sv) { this->buf += std::string_view(sv.data(), sv.size()); }
-			inline void operator() (char c, size_t n) { this->buf.resize(this->buf.size() + n, c); }
-			inline void operator() (const char* begin, const char* end) { this->buf.append(begin, end); }
-			inline void operator() (const char* begin, size_t len) { this->buf.append(begin, begin + len); }
-
-			string_appender(string_appender&&) = delete;
-			string_appender(const string_appender&) = delete;
-			string_appender& operator= (string_appender&&) = delete;
-			string_appender& operator= (const string_appender&) = delete;
-
-		private:
-			std::string& buf;
-		};
-	#endif
-
 		constexpr size_t STDIO_BUFFER_SIZE = 4096;
 	}
 
 
 
+
+	template <size_t fmt_N, typename CallbackFn, typename... Args>
+	size_t cprint(const CallbackFn& callback, const char (&fmt)[fmt_N], Args&&... args)
+	{
+		auto appender = detail::callback_appender(callback);
+		detail::print(appender, fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+
+		return appender.size();
+	}
+
+	template <typename CallbackFn, typename... Args>
+	size_t cprint(const CallbackFn& callback, const tt::str_view& fmt, Args&&... args)
+	{
+		auto appender = detail::callback_appender(callback);
+		detail::print(appender, fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
+
+		return appender.size();
+	}
+
+	template <size_t fmt_N, typename... Args>
+	size_t sprint(char* buf, size_t len, const char (&fmt)[fmt_N], Args&&... args)
+	{
+		auto appender = detail::buffer_appender(buf, len);
+		detail::print(appender, fmt, fmt_N - 1, tt::forward_as_tuple(args...));
+
+		return appender.size();
+	}
+
+	template <typename... Args>
+	size_t sprint(char* buf, size_t len, const tt::str_view& fmt, Args&&... args)
+	{
+		auto appender = detail::buffer_appender(buf, len);
+		detail::print(appender, fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
+
+		return appender.size();
+	}
+
+
+
+// if we are freestanding, we don't have stdio, so we can't print to "stdout".
+#if !ZPR_FREESTANDING
 
 	template <size_t fmt_N, typename... Args>
 	size_t print(const char (&fmt)[fmt_N], Args&&... args)
@@ -1787,9 +1965,6 @@ namespace zpr
 		return ret;
 	}
 
-
-
-
 	// overloads taking str_view fmt instead of const char* fmt
 	template <typename... Args>
 	size_t print(const tt::str_view& fmt, Args&&... args)
@@ -1831,27 +2006,8 @@ namespace zpr
 
 		return ret;
 	}
+#endif
 
-
-
-
-	template <size_t fmt_N, typename... Args>
-	size_t sprint(char* buf, size_t len, const char (&fmt)[fmt_N], Args&&... args)
-	{
-		auto appender = detail::buffer_appender(buf, len);
-		detail::print(appender, fmt, fmt_N - 1, tt::forward_as_tuple(args...));
-
-		return appender.size();
-	}
-
-	template <typename... Args>
-	size_t sprint(char* buf, size_t len, const tt::str_view& fmt, Args&&... args)
-	{
-		auto appender = detail::buffer_appender(buf, len);
-		detail::print(appender, fmt.data(), fmt.size(), tt::forward_as_tuple(args...));
-
-		return appender.size();
-	}
 
 
 
@@ -2064,23 +2220,24 @@ namespace zpr
 		void print(bool x, Cb&& cb, format_args args) { cb(x ? "true" : "false"); }
 	};
 
-	template <typename T>
-	struct print_formatter<T, typename tt::enable_if<(
-		tt::is_any<tt::decay_t<T>,
-			void*, const void*>::value
-	)>::type>
+	template <>
+	struct print_formatter<const void*>
 	{
 		template <typename Cb>
-		void print(T x, Cb&& cb, format_args args)
+		void print(const void* x, Cb&& cb, format_args args)
 		{
 			args.specifier = 'p';
 			print_formatter<uintptr_t>().print(reinterpret_cast<uintptr_t>(x), cb, tt::move(args));
 		}
 	};
 
+	template <>
+	struct print_formatter<void*> : print_formatter<const void*> { };
+
+
 	template <typename T>
 	struct print_formatter<T, typename tt::enable_if<(
-		tt::conjunction<detail::is_iterable<T>, tt::is_same<typename T::value_type, char>>::value
+		tt::conjunction<detail::is_iterable<T>, tt::is_same<tt::remove_cv_t<typename T::value_type>, char>>::value
 	)>::type>
 	{
 		template <typename Cb>
