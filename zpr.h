@@ -65,7 +65,7 @@
 
 	where `<spec>` is exactly a `printf`-style format specifier (note: there is no leading colon unlike the fmtlib/python style),
 	and where the final type specifier (eg. `s`, `d`) is optional. Floating point values will print as if `g` was used. Size
-	specifiers (eg. `lld`) are not supported.
+	specifiers (eg. `lld`) are not supported. Variable width and precision specifiers (eg. `%.*s`) are not supported.
 
 	The currently supported builtin formatters are:
 	- integral types            (signed/unsigned char/short/int/long/long long) (but not 'char')
