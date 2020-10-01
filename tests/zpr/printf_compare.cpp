@@ -30,7 +30,7 @@ int main(int argc, char** argv)
 	double d_               = -2 * 3.14159265358979323846264338327950;
 	char* s_                = (char*) "OMEGALUL KEKW";
 
-	const char* b__ = b_ ? "true" : "false";
+	const char* B_ = b_ ? "true" : "false";
 
 	auto pf = [](auto&&... xs) { printf(xs...); };
 	auto zpf = [](auto&&... xs) { zpr::println(xs...); };
@@ -40,7 +40,7 @@ int main(int argc, char** argv)
 #if 0
 #endif
 	pf("%c\n", c_);                 zpf("{}", c_);                      zpf(line);
-	pf("%s\n", b__);                zpf("{}", b_);                      zpf(line);
+	pf("%s\n", B_);                 zpf("{}", b_);                      zpf(line);
 	pf("%d\n", i_);                 zpf("{}", i_);                      zpf(line);
 	pf("%ld\n", l_);                zpf("{}", l_);                      zpf(line);
 	pf("%lu\n", ul_);               zpf("{}", ul_);                     zpf(line);
@@ -54,6 +54,8 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
+	pf("%10c\n", c_);               zpf("{10}", c_);                    zpf(line);
+	pf("%10s\n", B_);               zpf("{10}", b_);                    zpf(line);
 	pf("%10d\n", i_);               zpf("{10}", i_);                    zpf(line);
 	pf("%10ld\n", l_);              zpf("{10}", l_);                    zpf(line);
 	pf("%10lu\n", ul_);             zpf("{10}", ul_);                   zpf(line);
@@ -67,6 +69,8 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
+	pf("%.10c\n", c_);              zpf("{.10}", c_);                   zpf(line);
+	pf("%.10s\n", B_);              zpf("{.10}", b_);                   zpf(line);
 	pf("%.10d\n", i_);              zpf("{.10}", i_);                   zpf(line);
 	pf("%.10ld\n", l_);             zpf("{.10}", l_);                   zpf(line);
 	pf("%.10lu\n", ul_);            zpf("{.10}", ul_);                  zpf(line);
@@ -80,6 +84,8 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
+	pf("%18.10c\n", c_);            zpf("{18.10}", c_);                 zpf(line);
+	pf("%18.10s\n", B_);            zpf("{18.10}", b_);                 zpf(line);
 	pf("%18.10d\n", i_);            zpf("{18.10}", i_);                 zpf(line);
 	pf("%18.10ld\n", l_);           zpf("{18.10}", l_);                 zpf(line);
 	pf("%18.10lu\n", ul_);          zpf("{18.10}", ul_);                zpf(line);
@@ -93,6 +99,8 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
+	pf("%*.10c\n", 18, c_);         zpf("{.10}",  zpr::w(18)(c_));      zpf(line);
+	pf("%*.10s\n", 18, B_);         zpf("{.10}",  zpr::w(18)(b_));      zpf(line);
 	pf("%*.10d\n", 18, i_);         zpf("{.10}",  zpr::w(18)(i_));      zpf(line);
 	pf("%*.10ld\n", 18, l_);        zpf("{.10}",  zpr::w(18)(l_));      zpf(line);
 	pf("%*.10lu\n", 18, ul_);       zpf("{.10}",  zpr::w(18)(ul_));     zpf(line);
@@ -106,6 +114,8 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
+	pf("%18.*c\n", 10, c_);         zpf("{18}",  zpr::p(10)(c_));       zpf(line);
+	pf("%18.*s\n", 10, B_);         zpf("{18}",  zpr::p(10)(b_));       zpf(line);
 	pf("%18.*d\n", 10, i_);         zpf("{18}",  zpr::p(10)(i_));       zpf(line);
 	pf("%18.*ld\n", 10, l_);        zpf("{18}",  zpr::p(10)(l_));       zpf(line);
 	pf("%18.*lu\n", 10, ul_);       zpf("{18}",  zpr::p(10)(ul_));      zpf(line);
@@ -119,6 +129,8 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
+	pf("%*.*c\n", 18, 10, c_);      zpf("{}",  zpr::wp(18, 10)(c_));    zpf(line);
+	pf("%*.*s\n", 18, 10, B_);      zpf("{}",  zpr::wp(18, 10)(b_));    zpf(line);
 	pf("%*.*d\n", 18, 10, i_);      zpf("{}",  zpr::wp(18, 10)(i_));    zpf(line);
 	pf("%*.*ld\n", 18, 10, l_);     zpf("{}",  zpr::wp(18, 10)(l_));    zpf(line);
 	pf("%*.*lu\n", 18, 10, ul_);    zpf("{}",  zpr::wp(18, 10)(ul_));   zpf(line);
@@ -132,6 +144,8 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
+	pf("%018.10c\n", c_);           zpf("{018.10}", c_);                zpf(line);
+	pf("%018.10s\n", B_);           zpf("{018.10}", b_);                zpf(line);
 	pf("%018.10d\n", i_);           zpf("{018.10}", i_);                zpf(line);
 	pf("%018.10ld\n", l_);          zpf("{018.10}", l_);                zpf(line);
 	pf("%018.10lu\n", ul_);         zpf("{018.10}", ul_);               zpf(line);
@@ -145,6 +159,8 @@ int main(int argc, char** argv)
 
 	zpf("\n");
 
+	pf("%-18.10c|\n", c_);          zpf("{-18.10}|", c_);               zpf(line);
+	pf("%-18.10s|\n", B_);          zpf("{-18.10}|", b_);               zpf(line);
 	pf("%-18.10d|\n", i_);          zpf("{-18.10}|", i_);               zpf(line);
 	pf("%-18.10ld|\n", l_);         zpf("{-18.10}|", l_);               zpf(line);
 	pf("%-18.10lu|\n", ul_);        zpf("{-18.10}|", ul_);              zpf(line);
