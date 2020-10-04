@@ -180,6 +180,13 @@
 	Version History
 	===============
 
+	2.1.3 - 04/10/2020
+	------------------
+	Bug fixes:
+	- fix an issue preventing user-defined formatters from calling cprint() with the callback given to them
+
+
+
 	2.1.2 - 01/10/2020
 	------------------
 	Bug fixes:
@@ -1590,17 +1597,17 @@ namespace zpr
 		template <typename Fn>
 		struct callback_appender
 		{
-			callback_appender(const Fn& callback, bool newline) : len(0), callback(callback), newline(newline) { }
-			~callback_appender() { if(newline) { callback("\n", 1); } }
+			callback_appender(Fn* callback, bool newline) : len(0), callback(callback), newline(newline) { }
+			~callback_appender() { if(newline) { (*callback)("\n", 1); } }
 
-			inline void operator() (char c) { callback(&c, 1); this->len += 1; }
-			inline void operator() (tt::str_view sv) { callback(sv.data(), sv.size()); this->len += sv.size(); }
-			inline void operator() (const char* begin, const char* end) { callback(begin, end - begin); this->len += (end - begin); }
-			inline void operator() (const char* begin, size_t len) { callback(begin, len); this->len += len; }
+			inline void operator() (char c) { (*callback)(&c, 1); this->len += 1; }
+			inline void operator() (tt::str_view sv) { (*callback)(sv.data(), sv.size()); this->len += sv.size(); }
+			inline void operator() (const char* begin, const char* end) { (*callback)(begin, end - begin); this->len += (end - begin); }
+			inline void operator() (const char* begin, size_t len) { (*callback)(begin, len); this->len += len; }
 			inline void operator() (char c, size_t n)
 			{
 				for(size_t i = 0; i < n; i++)
-					callback(&c, 1);
+					(*callback)(&c, 1);
 
 				this->len += n;
 			}
@@ -1615,7 +1622,7 @@ namespace zpr
 		private:
 			size_t len;
 			bool newline;
-			const Fn& callback;
+			Fn* callback;
 		};
 
 
@@ -1675,9 +1682,9 @@ namespace zpr
 
 
 	template <typename CallbackFn, typename... Args>
-	size_t cprint(const CallbackFn& callback, tt::str_view fmt, Args&&... args)
+	size_t cprint(CallbackFn&& callback, tt::str_view fmt, Args&&... args)
 	{
-		auto appender = detail::callback_appender(callback, /* newline: */ false);
+		auto appender = detail::callback_appender(&callback, /* newline: */ false);
 		detail::print(appender, fmt,
 			static_cast<Args&&>(args)...);
 
@@ -1685,9 +1692,9 @@ namespace zpr
 	}
 
 	template <typename CallbackFn, typename... Args>
-	size_t cprintln(const CallbackFn& callback, tt::str_view fmt, Args&&... args)
+	size_t cprintln(CallbackFn&& callback, tt::str_view fmt, Args&&... args)
 	{
-		auto appender = detail::callback_appender(callback, /* newline: */ true);
+		auto appender = detail::callback_appender(&callback, /* newline: */ true);
 		detail::print(appender, fmt,
 			static_cast<Args&&>(args)...);
 
