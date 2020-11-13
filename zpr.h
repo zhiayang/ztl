@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.1.3
+	Version 2.1.4
 	=============
 
 
@@ -179,6 +179,13 @@
 
 	Version History
 	===============
+
+	2.1.4 - 13/11/2020
+	------------------
+	Bug fixes:
+	- fix 'comparison between integers of different signs' (or whatever) warning
+
+
 
 	2.1.3 - 04/10/2020
 	------------------
@@ -1044,7 +1051,7 @@ namespace zpr
 
 			auto args_copy = args;
 			args_copy.width = fwidth;
-			auto len = print_floating(cb, negative ? -value : value, args_copy);
+			auto len = static_cast<int64_t>(print_floating(cb, negative ? -value : value, args_copy));
 
 			// output the exponent part
 			if(minwidth > 0)
