@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.1.4
+	Version 2.1.5
 	=============
 
 
@@ -179,6 +179,13 @@
 
 	Version History
 	===============
+
+	2.1.5 - 17/11/2020
+	------------------
+	Bug fixes:
+	- fix broken binary integer printing
+
+
 
 	2.1.4 - 13/11/2020
 	------------------
@@ -1324,7 +1331,7 @@ namespace zpr
 
 			do {
 				*(--ptr) = ('0' + (value & 1));
-				value >>= 4;
+				value >>= 1;
 
 			} while(value > 0);
 
