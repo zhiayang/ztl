@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.1.5
+	Version 2.1.6
 	=============
 
 
@@ -179,6 +179,13 @@
 
 	Version History
 	===============
+
+	2.1.6 - 20/11/2020
+	------------------
+	Bug fixes:
+	- fix broken std::pair printing
+
+
 
 	2.1.5 - 17/11/2020
 	------------------
@@ -2138,9 +2145,9 @@ namespace zpr
 		void print(const std::pair<A, B>& x, Cb&& cb, format_args args)
 		{
 			cb("{ ");
-			detail::print_one(static_cast<Cb&&>(cb), args, static_cast<A&&>(x.first));
+			detail::print_one(static_cast<Cb&&>(cb), args, x.first);
 			cb(", ");
-			detail::print_one(static_cast<Cb&&>(cb), args, static_cast<B&&>(x.second));
+			detail::print_one(static_cast<Cb&&>(cb), args, x.second);
 			cb(" }");
 		}
 	};
