@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.1.6
+	Version 2.1.7
 	=============
 
 
@@ -179,6 +179,13 @@
 
 	Version History
 	===============
+
+	2.1.7 - 21/11/2020
+	------------------
+	Bug fixes:
+	- fix warning on member initialisation order for cprint
+
+
 
 	2.1.6 - 20/11/2020
 	------------------
@@ -1618,7 +1625,7 @@ namespace zpr
 		template <typename Fn>
 		struct callback_appender
 		{
-			callback_appender(Fn* callback, bool newline) : len(0), callback(callback), newline(newline) { }
+			callback_appender(Fn* callback, bool newline) : len(0), newline(newline), callback(callback) { }
 			~callback_appender() { if(newline) { (*callback)("\n", 1); } }
 
 			inline void operator() (char c) { (*callback)(&c, 1); this->len += 1; }
