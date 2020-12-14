@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.1.7
+	Version 2.1.8
 	=============
 
 
@@ -179,6 +179,12 @@
 
 	Version History
 	===============
+
+	2.1.8 - 14/12/2020
+	------------------
+	Bug fixes:
+	- fix incorrect drop(), drop_last(), take(), and take_last() on tt::str_view
+
 
 	2.1.7 - 21/11/2020
 	------------------
@@ -656,10 +662,10 @@ namespace zpr::tt
 
 		inline char operator[] (size_t n) { return this->ptr[n]; }
 
-		inline str_view drop(size_t n) const { return (this->size() > n ? this->substr(n) : ""); }
-		inline str_view take(size_t n) const { return (this->size() > n ? this->substr(0, n) : *this); }
-		inline str_view take_last(size_t n) const { return (this->size() > n ? this->substr(this->size() - n) : *this); }
-		inline str_view drop_last(size_t n) const { return (this->size() > n ? this->substr(0, this->size() - n) : *this); }
+		inline str_view drop(size_t n) const { return (this->size() >= n ? this->substr(n) : ""); }
+		inline str_view take(size_t n) const { return (this->size() >= n ? this->substr(0, n) : *this); }
+		inline str_view take_last(size_t n) const { return (this->size() >= n ? this->substr(this->size() - n) : *this); }
+		inline str_view drop_last(size_t n) const { return (this->size() >= n ? this->substr(0, this->size() - n) : *this); }
 		inline str_view substr(size_t pos = 0, size_t cnt = -1) const { return str_view(this->ptr + pos, cnt); }
 
 		inline str_view& remove_prefix(size_t n) { return (*this = this->drop(n)); }
