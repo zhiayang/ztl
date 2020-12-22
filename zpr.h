@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.1.8
+	Version 2.1.9
 	=============
 
 
@@ -180,10 +180,19 @@
 	Version History
 	===============
 
+	2.1.9 - 23/12//2020
+	-------------------
+	Bug fixes:
+	- fix unused variable warning when lookup tables were disabled
+	- fix pointless assertion in integer printing (`sizeof(T) <= 64` -> `sizeof(T) <= 8`)
+
+
+
 	2.1.8 - 14/12/2020
 	------------------
 	Bug fixes:
 	- fix incorrect drop(), drop_last(), take(), and take_last() on tt::str_view
+
 
 
 	2.1.7 - 21/11/2020
@@ -1293,6 +1302,9 @@ namespace zpr
 		template <typename T>
 		char* print_hex_integer(char* buf, size_t bufsz, T value)
 		{
+			static_assert(sizeof(T) <= 8);
+
+		#if ZPR_HEXADECIMAL_LOOKUP_TABLE
 			constexpr const char lookup_table[] =
 				"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 				"202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
@@ -1302,6 +1314,7 @@ namespace zpr
 				"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"
 				"c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
 				"e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff";
+		#endif
 
 			constexpr auto hex_digit = [](int x) -> char {
 				if(0 <= x && x <= 9)
@@ -1361,13 +1374,15 @@ namespace zpr
 		template <typename T>
 		char* print_decimal_integer(char* buf, size_t bufsz, T value)
 		{
-			static_assert(sizeof(T) <= 64);
+			static_assert(sizeof(T) <= 8);
 
+		#if ZPR_DECIMAL_LOOKUP_TABLE
 			constexpr const char lookup_table[] =
 				"000102030405060708091011121314151617181920212223242526272829"
 				"303132333435363738394041424344454647484950515253545556575859"
 				"606162636465666768697071727374757677787980818283848586878889"
 				"90919293949596979899";
+		#endif
 
 			bool neg = false;
 			if constexpr (tt::is_signed_v<T>)
