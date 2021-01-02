@@ -1,6 +1,6 @@
 /*
 	zpr.h
-	Copyright 2020, zhiayang
+	Copyright 2020 - 2021, zhiayang
 
 	Licensed under the Apache License, Version 2.0 (the "License");
 	you may not use this file except in compliance with the License.
@@ -43,8 +43,8 @@
 
 
 /*
-	Version 2.1.9
-	=============
+	Version 2.1.10
+	==============
 
 
 
@@ -180,8 +180,15 @@
 	Version History
 	===============
 
-	2.1.9 - 23/12//2020
+	2.1.10 - 02/01/2021
 	-------------------
+	Bug fixes:
+	- fix truncated `inf` and `nan` when precision is specified.
+
+
+
+	2.1.9 - 23/12/2020
+	------------------
 	Bug fixes:
 	- fix unused variable warning when lookup tables were disabled
 	- fix pointless assertion in integer printing (`sizeof(T) <= 64` -> `sizeof(T) <= 8`)
@@ -947,6 +954,9 @@ namespace zpr
 		template <typename CallbackFn>
 		size_t print_special_floating(CallbackFn&& cb, double value, format_args args)
 		{
+			// uwu. apparently, `inf` and `nan` are never truncated.
+			args.set_precision(999);
+
 			if(value != value)
 				return print_string(cb, "nan", 3, static_cast<format_args&&>(args));
 
