@@ -1,2 +1,4 @@
 *.o
 .vscode
+/test
+test.cpp
