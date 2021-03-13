@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 0.1.0
+	Version 0.2.0
 	=============
 
 
@@ -25,10 +25,15 @@
 	=============
 
 	This socket library is a lightweight wrapper around POSIX/BSD network sockets, with both UDP and TCP
-	support. SSL is also supported for TCP sockets, using OpenSSL >= 1.1.
+	support. SSL is also supported for TCP sockets, using OpenSSL >= 1.1. This library currently always
+	requires threading support in the form of `std::thread` for the asynchronous API, though it will be
+	configurable in the future.
 
-
-
+	Both TCP and UDP sockets have a asynchronous callback interface as well as a synchronous, blocking
+	interface. Currently, it is not possible to set either socket to non-blocking mode. Furthermore, arbitarily
+	switching between the sync and async functions is not supported, since the callback-calling thread
+	continues to try and read the socket simultaneously --- which might get into weird behaviour depending on
+	which thread your kernel decides to respond to.
 
 	Since the main socket objects are not templated, this library follows the stb_* style of header-only
 	libraries --- in exactly one cpp file, #define ZNET_IMPLEMENTATION to generate the definitions of the
@@ -48,8 +53,19 @@
 
 
 
+
+
+
 	Version History
 	===============
+
+	0.2.0 - 10/03/2021
+	------------------
+	- add timeout support for TCP connect.
+	- switch to seconds (as a double) for timeouts everywhere.
+	- misc fixes
+	- add more documentation
+
 
 	0.1.0 - 10/03/2021
 	------------------
@@ -104,6 +120,13 @@
 
 namespace znet
 {
+	namespace detail
+	{
+		void set_timeout(int sock, double timeout_secs);
+		void set_blocking(int sock, bool block);
+		bool get_blocking(int sock);
+	}
+
 	// sockaddr is toxic.
 	struct IPAddress
 	{
@@ -140,7 +163,7 @@ namespace znet
 		inline const struct sockaddr* ptr() const { return reinterpret_cast<const struct sockaddr*>(&this->storage); }
 
 		// note: 'ip' must be a 4-component IP address, eg. 192.168.1.69
-		static IPAddress ipv4(const std::string& ip, uint16_t port);
+		static IPAddress ip4(const std::string& ip, uint16_t port);
 
 		// hostname is any hostname --- obviously without the URI type (eg. https)
 		static IPAddress hostname4(const std::string& host, uint16_t port);
@@ -184,11 +207,14 @@ namespace znet
 		void onReceive(std::function<void (const uint8_t*, size_t, const IPAddress& from)>&& callback);
 
 		// synchronous
-		ssize_t receive(uint8_t* buf, size_t len, uint64_t timeout_ns, IPAddress* from = nullptr);
+		ssize_t receive(uint8_t* buf, size_t len, double timeout_secs = 0, IPAddress* from = nullptr);
+
+		void setBlocking(bool blocking);
+		bool isBlocking() const;
 
 	private:
 		void setup_receiver();
-		ssize_t do_socket_read(uint8_t* buf, size_t len, uint64_t timeout_ms, IPAddress* from);
+		ssize_t do_socket_read(uint8_t* buf, size_t len, double timeout_secs, IPAddress* from);
 
 		int m_sock = -1;
 		bool m_connected = false;
@@ -201,7 +227,7 @@ namespace znet
 		IPAddress m_sendaddr = { };
 
 		// 1500 MTU, plus a little extra
-		static constexpr size_t BUFFER_SIZE = 2048;
+		static constexpr size_t BUFFER_SIZE = 8192;
 	};
 
 	struct TCPSocket
@@ -215,7 +241,7 @@ namespace znet
 		TCPSocket(const TCPSocket&) = delete;
 		TCPSocket& operator= (const TCPSocket&) = delete;
 
-		bool connect();
+		bool connect(double timeout_secs = 0);
 		void disconnect();
 		bool connected() const;
 
@@ -226,11 +252,14 @@ namespace znet
 		void onReceive(std::function<void (const uint8_t*, size_t)>&& callback);
 
 		// synchronous
-		ssize_t receive(uint8_t* buf, size_t len, uint64_t timeout_ns);
+		ssize_t receive(uint8_t* buf, size_t len, double timeout_secs = 0);
+
+		void setBlocking(bool blocking);
+		bool isBlocking() const;
 
 	private:
 		void setup_receiver();
-		ssize_t do_socket_read(uint8_t* buf, size_t len, uint64_t timeout_ms);
+		ssize_t do_socket_read(uint8_t* buf, size_t len, double timeout_secs);
 
 		int m_sock = -1;
 		bool m_connected = false;
@@ -306,12 +335,10 @@ namespace znet
 		if(ssl && !ZNET_ENABLE_SSL)
 			ZNET_ERROR_ABORT("cannot use SSL without ZNET_ENABLE_SSL=1\n");
 
-		if(!ssl) return;
-
-
 	#if ZNET_ENABLE_SSL
 
-		this->m_useSSL = true;
+		this->m_useSSL = ssl;
+		if(!ssl) return;
 
 		this->m_sslContext = SSL_CTX_new(TLS_client_method());
 		if(!this->m_sslContext) ZNET_ERROR_ABORT("failed to allocate SSL context: %s\n", strerror(errno));
@@ -325,6 +352,7 @@ namespace znet
 	    SSL_set_fd(this->m_ssl, this->m_sock);
 
 	#endif // ZNET_ENABLE_SSL
+
 	}
 
 	TCPSocket::~TCPSocket()
@@ -374,15 +402,59 @@ namespace znet
 		return *this;
 	}
 
+	void TCPSocket::setBlocking(bool blocking)
+	{
+		detail::set_blocking(this->m_sock, blocking);
+	}
+
+	bool TCPSocket::isBlocking() const
+	{
+		return detail::get_blocking(this->m_sock);
+	}
+
 	bool TCPSocket::connected() const
 	{
 		return this->m_connected;
 	}
 
-	bool TCPSocket::connect()
+	bool TCPSocket::connect(double timeout_secs)
 	{
-		if(::connect(this->m_sock, this->m_addr.ptr(), this->m_addr.size()) < 0)
+		bool wasBlocking = false;
+		if(timeout_secs > 0)
+		{
+			// make it nonblocking for now
+			wasBlocking = this->isBlocking();
+			this->setBlocking(false);
+
+			// set the timeout...
+			detail::set_timeout(this->m_sock, timeout_secs);
+		}
+
+		if(int x = ::connect(this->m_sock, this->m_addr.ptr(), this->m_addr.size()); x < 0 && errno != EINPROGRESS)
 			ZNET_ERROR_RETURN(false, "socket connection error: %s\n", strerror(errno));
+
+		if(timeout_secs > 0)
+		{
+			// now we wait for the idiot to finish. use poll here because i can't be bothered.
+			// if you need microsecond precision on your connection timeout, go away.
+
+			auto fds = pollfd { .fd = this->m_sock, .events = POLLOUT };
+			auto ret = poll(&fds, 1, static_cast<int>(timeout_secs * 1000));
+			if(ret < 0)
+			{
+				if(errno == EINPROGRESS)
+					return false;
+
+				else // it's another kind of error, better print something.
+					ZNET_ERROR_RETURN(false, "connection failed: %s\n", strerror(errno));
+			}
+
+			if(ret == 0) return false;
+
+			// ok, now reset the timeout.
+			this->setBlocking(wasBlocking);
+		}
+
 
 	#if ZNET_ENABLE_SSL
 		if(this->m_useSSL)
@@ -391,6 +463,9 @@ namespace znet
 				ZNET_ERROR_RETURN(false, "SSL connection error: %s\n", strerror(errno));
 		}
 	#endif // ZNET_ENABLE_SSL
+
+		this->m_connected = true;
+		this->setup_receiver();
 
 		return true;
 	}
@@ -469,7 +544,7 @@ namespace znet
 				if(!this->m_connected)
 					break;
 
-				auto bytes = this->do_socket_read(this->m_buffer, BUFFER_SIZE, (200ms).count());
+				auto bytes = this->do_socket_read(this->m_buffer, BUFFER_SIZE, (0.2s).count());
 				if(bytes <= 0) continue;
 
 				this->m_callback(this->m_buffer, bytes);
@@ -477,52 +552,39 @@ namespace znet
 		});
 	}
 
-	ssize_t TCPSocket::receive(uint8_t* buf, size_t len, uint64_t timeout_ns)
+	ssize_t TCPSocket::receive(uint8_t* buf, size_t len, double timeout_secs)
 	{
-		int timeout_ms = 0;
-		{
-			using namespace std::chrono;
-			if(timeout_ns == static_cast<uint64_t>(-1))
-				timeout_ms = -1;
-
-			else
-				timeout_ms = duration_cast<milliseconds>(nanoseconds(timeout_ns)).count();
-		}
-
-		return do_socket_read(buf, len, timeout_ms);
+		return this->do_socket_read(buf, len, timeout_secs);
 	}
 
-	ssize_t TCPSocket::do_socket_read(uint8_t* buf, size_t len, uint64_t timeout_ms)
+	ssize_t TCPSocket::do_socket_read(uint8_t* buf, size_t len, double timeout_secs)
 	{
-		auto fds = pollfd { .fd = this->m_sock, .events = POLLIN };
-		auto ret = poll(&fds, 1, timeout_ms);
-		if(ret == 0)
+		detail::set_timeout(this->m_sock, timeout_secs);
+
+	#if ZNET_ENABLE_SSL
+		if(this->m_useSSL)
 		{
-			return 0;
-		}
-		else if(ret == -1)
-		{
-			fprintf(stderr, "socket error: %s\n", strerror(errno));
-			return -1;
+			// TODO: handle SSL errors
+			size_t bytes = 0;
+			SSL_read_ex(this->m_ssl, buf, len, &bytes);
+			return bytes;
 		}
 		else
+	#endif // ZNET_ENABLE_SSL
 		{
-		#if ZNET_ENABLE_SSL
-			if(this->m_useSSL)
+			auto bytes = recv(this->m_sock, buf, len, 0);
+			if(bytes < 0)
 			{
-				// TODO: handle SSL errors
-				size_t bytes = 0;
-				SSL_read_ex(this->m_ssl, buf, len, &bytes);
-				return bytes;
-			}
-			else
-		#endif // ZNET_ENABLE_SSL
-			{
-				auto bytes = recv(this->m_sock, buf, len, 0);
-				if(bytes < 0) ZNET_ERROR_RETURN(-1, "socket error: %s\n", strerror(errno));
+				if(errno == EAGAIN || errno == EWOULDBLOCK)
+					return 0;
 
-				return bytes;
+				if(errno == ECONNRESET)
+					this->m_connected = false;
+
+				ZNET_ERROR_RETURN(-1, "socket error: %s\n", strerror(errno));
 			}
+
+			return bytes;
 		}
 	}
 
@@ -552,7 +614,6 @@ namespace znet
 #include <cstdio>
 #include <cstdlib>
 
-#include <poll.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -576,6 +637,9 @@ namespace znet
 		// enable broadcast, just in case. it doesn't matter anyway.
 		int yes = 1;
 		setsockopt(this->m_sock, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
+
+		int size = 1024 * 1024 * 64;
+		setsockopt(this->m_sock, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
 
 		this->m_buffer = new uint8_t[BUFFER_SIZE];
 		this->m_callback = [](auto...) { };
@@ -624,6 +688,16 @@ namespace znet
 			this->m_callback        = std::move(other.m_callback);
 		}
 		return *this;
+	}
+
+	void UDPSocket::setBlocking(bool blocking)
+	{
+		detail::set_blocking(this->m_sock, blocking);
+	}
+
+	bool UDPSocket::isBlocking() const
+	{
+		return detail::get_blocking(this->m_sock);
 	}
 
 	bool UDPSocket::bind()
@@ -685,7 +759,7 @@ namespace znet
 					break;
 
 				IPAddress addr = { };
-				auto bytes = this->do_socket_read(this->m_buffer, BUFFER_SIZE, (200ms).count(), &addr);
+				auto bytes = this->do_socket_read(this->m_buffer, BUFFER_SIZE, (0.2s).count(), &addr);
 				if(bytes <= 0) continue;
 
 				this->m_callback(this->m_buffer, bytes, addr);
@@ -698,52 +772,28 @@ namespace znet
 		return sendto(this->m_sock, buf, len, 0, this->m_sendaddr.ptr(), this->m_sendaddr.size());
 	}
 
-	ssize_t UDPSocket::receive(uint8_t* buf, size_t len, uint64_t timeout_ns, IPAddress* from)
+	ssize_t UDPSocket::receive(uint8_t* buf, size_t len, double timeout_secs, IPAddress* from)
 	{
-		int timeout_ms = 0;
-		{
-			using namespace std::chrono;
-			if(timeout_ns == static_cast<uint64_t>(-1))
-				timeout_ms = -1;
-
-			else
-				timeout_ms = duration_cast<milliseconds>(nanoseconds(timeout_ns)).count();
-		}
-
-		if(!this->m_connected)
-			return -1;
-
-		return this->do_socket_read(buf, len, timeout_ms, from);
+		return this->do_socket_read(buf, len, timeout_secs, from);
 	}
 
-	ssize_t UDPSocket::do_socket_read(uint8_t* buf, size_t len, uint64_t timeout_ms, IPAddress* from)
+	ssize_t UDPSocket::do_socket_read(uint8_t* buf, size_t len, double timeout_secs, IPAddress* from)
 	{
-		auto fds = pollfd { .fd = this->m_sock, .events = POLLIN };
-		auto ret = poll(&fds, 1, timeout_ms);
-		if(ret == 0)
-		{
-			return 0;
-		}
-		else if(ret == -1)
-		{
-			fprintf(stderr, "socket error: %s\n", strerror(errno));
-			return -1;
-		}
-		else
-		{
-			socklen_t sa_len = 0;
-			struct sockaddr_storage sa = { };
+		detail::set_timeout(this->m_sock, timeout_secs);
 
-			auto bytes = recvfrom(this->m_sock, buf, len,
-				0, reinterpret_cast<struct sockaddr*>(&sa), &sa_len);
+		socklen_t sa_len = 0;
+		struct sockaddr_storage sa = { };
 
-			if(bytes < 0) ZNET_ERROR_RETURN(-1, "socket error: %s\n", strerror(errno));
+		auto bytes = recvfrom(this->m_sock, buf, len,
+			0, reinterpret_cast<struct sockaddr*>(&sa), &sa_len);
 
-			if(from)
-				*from = IPAddress(&sa, sa_len);
+		if(bytes < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK))
+			ZNET_ERROR_RETURN(-1, "socket error: %s\n", strerror(errno));
 
-			return bytes;
-		}
+		if(from)
+			*from = IPAddress(&sa, sa_len);
+
+		return bytes;
 	}
 }
 #endif // ZNET_UDP_IMPLEMENTATION
@@ -755,11 +805,15 @@ namespace znet
 // everybody needs this.
 #if ZNET_SOME_IMPLEMENTATION
 
+
+#include <fcntl.h>
+#include <sys/time.h>
 #include <arpa/inet.h>
+#include <sys/select.h>
 
 namespace znet
 {
-	IPAddress IPAddress::ipv4(const std::string& ip, uint16_t port)
+	IPAddress IPAddress::ip4(const std::string& ip, uint16_t port)
 	{
 		struct sockaddr_in sa;
 		sa.sin_family = AF_INET;
@@ -809,10 +863,39 @@ namespace znet
 
 	IPAddress IPAddress::udpBroadcast(uint16_t port)
 	{
-		return IPAddress::ipv4("255.255.255.255", port);
+		return IPAddress::ip4("255.255.255.255", port);
+	}
+
+	namespace detail
+	{
+		void set_timeout(int sock, double timeout_secs)
+		{
+			auto seconds = floor(timeout_secs);
+			auto micros = (timeout_secs - seconds) * 1e6;
+
+			struct timeval tv = {
+				.tv_sec = static_cast<time_t>(seconds),
+				.tv_usec = static_cast<suseconds_t>(micros)
+			};
+
+			setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+		}
+
+		void set_blocking(int sock, bool block)
+		{
+			const auto flags = fcntl(sock, F_GETFL, 0);
+			const auto newflags = !block ? (flags | O_NONBLOCK) : (flags ^ O_NONBLOCK);
+			if(fcntl(sock, F_SETFL, newflags) < 0)
+				ZNET_ERROR_RETURN_VOID("could not set socket to non-blocking: %s\n", strerror(errno));
+		}
+
+		bool get_blocking(int sock)
+		{
+			return !(fcntl(sock, F_GETFL, 0) & O_NONBLOCK);
+		}
 	}
 }
-#endif // ZNET_IMPLEMENTATION || ZNET_UDP_IMPLEMENTATION || ZNET_TCP_IMPLEMENTATION
+#endif // ZNET_SOME_IMPLEMENTATION
 
 
 
