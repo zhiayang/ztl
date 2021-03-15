@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.1.11
+	Version 2.1.12
 	==============
 
 
@@ -87,7 +87,9 @@
 	for wp(), the width is the first argument, and the precision the second argument. Note that you
 	could use this everywhere and not put the widths in the format string at all.
 
-	optional #define macros to control behaviour:
+	There are optional #define macros to control behaviour; defining them without a value constitues
+	a TRUE -- for FALSE, either `#undef` them, or explicitly define them as 0. For values that are TRUE
+	by default, you *must* explicitly `#define` them as 0.
 
 	- ZPR_USE_STD
 		this is *TRUE* by default. controls whether or not STL type interfaces are used; with it,
@@ -119,7 +121,7 @@
 
 
 	Custom Formatters
-	=================
+	-----------------
 
 	To format custom types, specialise the print_formatter struct. An example of how it should be done can be seen from
 	the builtin formatters, taking note to follow the signatures.
@@ -132,7 +134,7 @@
 
 
 	Function List
-	=============
+	-------------
 
 	the type 'tt::str_view' is an simplified version of std::string_view, and has
 	implicit constructors from 'const char*' as well as const char (&)[N] (which means we don't
@@ -179,6 +181,14 @@
 
 	Version History
 	===============
+
+	2.1.12 - 15/03/2021
+	-------------------
+	Bug fixes:
+	- fix handling of control macros when they are defined without a value. Now they will not generate errors, and are
+		treated as TRUE. Also update the documentation about this.
+
+
 
 	2.1.11 - 15/03/2021
 	-------------------
@@ -389,32 +399,56 @@
 #include <cstddef>
 #include <cstdint>
 
-#ifndef ZPR_HEX_0X_RESPECTS_UPPERCASE
+#define ZPR_DO_EXPAND(VAL)  VAL ## 1
+#define ZPR_EXPAND(VAL)     ZPR_DO_EXPAND(VAL)
+
+// this weird macro soup is necessary to defend against the case where you just do
+// #define ZPR_FOO_BAR, but without a value -- we want to treat that as a TRUE.
+#if !defined(ZPR_HEX_0X_RESPECTS_UPPERCASE)
 	#define ZPR_HEX_0X_RESPECTS_UPPERCASE 0
+#elif (ZPR_EXPAND(ZPR_HEX_0X_RESPECTS_UPPERCASE) == 1)
+	#undef ZPR_HEX_0X_RESPECTS_UPPERCASE
+	#define ZPR_HEX_0X_RESPECTS_UPPERCASE 1
 #endif
 
-#ifndef ZPR_DECIMAL_LOOKUP_TABLE
+#if !defined(ZPR_FREESTANDING)
+	#define ZPR_FREESTANDING 0
+#elif (ZPR_EXPAND(ZPR_FREESTANDING) == 1)
+	#undef ZPR_FREESTANDING
+	#define ZPR_FREESTANDING 1
+#endif
+
+// it needs to be like this so we don't throw a redefinition warning.
+#if !defined(ZPR_DECIMAL_LOOKUP_TABLE)
+	#define ZPR_DECIMAL_LOOKUP_TABLE 1
+#elif (ZPR_EXPAND(ZPR_DECIMAL_LOOKUP_TABLE) == 1)
+	#undef ZPR_DECIMAL_LOOKUP_TABLE
 	#define ZPR_DECIMAL_LOOKUP_TABLE 1
 #endif
 
-#ifndef ZPR_HEXADECIMAL_LOOKUP_TABLE
+#if !defined(ZPR_HEXADECIMAL_LOOKUP_TABLE)
+	#define ZPR_HEXADECIMAL_LOOKUP_TABLE 1
+#elif (ZPR_EXPAND(ZPR_HEXADECIMAL_LOOKUP_TABLE) == 1)
+	#undef ZPR_HEXADECIMAL_LOOKUP_TABLE
 	#define ZPR_HEXADECIMAL_LOOKUP_TABLE 1
 #endif
 
-#ifndef ZPR_USE_STD
+#if !defined(ZPR_USE_STD)
+	#define ZPR_USE_STD 1
+#elif (ZPR_EXPAND(ZPR_USE_STD) == 1)
+	#undef ZPR_USE_STD
 	#define ZPR_USE_STD 1
 #endif
 
-#ifndef ZPR_FREESTANDING
-	#define ZPR_FREESTANDING 0
-#endif
 
 #if !ZPR_FREESTANDING
 	#include <cstdio>
 	#include <cstring>
 #else
+	#if defined(ZPR_USE_STD)
+		#undef ZPR_USE_STD
+	#endif
 
-	#undef ZPR_USE_STD
 	#define ZPR_USE_STD 0
 
 	extern "C" void* memset(void* s, int c, size_t n);
@@ -431,6 +465,12 @@
 	#include <string_view>
 	#include <type_traits>
 #endif
+
+
+#undef ZPR_DO_EXPAND
+#undef ZPR_EXPAND
+
+
 
 namespace zpr::tt
 {

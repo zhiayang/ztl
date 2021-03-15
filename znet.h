@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 0.2.0
+	Version 0.3.0
 	=============
 
 
@@ -29,6 +29,9 @@
 	requires threading support in the form of `std::thread` for the asynchronous API, though it will be
 	configurable in the future.
 
+	It is (of course) not freestanding, but it does use the C++ STL, including std::function, std::thread,
+	and std::string.
+
 	Both TCP and UDP sockets have a asynchronous callback interface as well as a synchronous, blocking
 	interface. Currently, it is not possible to set either socket to non-blocking mode. Furthermore, arbitarily
 	switching between the sync and async functions is not supported, since the callback-calling thread
@@ -39,7 +42,9 @@
 	libraries --- in exactly one cpp file, #define ZNET_IMPLEMENTATION to generate the definitions of the
 	various functions. When this macro is not defined, only declarations are made.
 
-	optional #define macros to control behaviour:
+	There are optional #define macros to control behaviour; defining them without a value constitues
+	a TRUE -- for FALSE, either `#undef` them, or explicitly define them as 0. For values that are TRUE
+	by default, you *must* explicitly `#define` them as 0.
 
 	- ZNET_ENABLE_SSL
 		this is *FALSE* by default. Define and set it to 1 to enable SSL support. This will pull in OpenSSL
@@ -58,6 +63,12 @@
 
 	Version History
 	===============
+
+	0.3.0 - 15/03/2021
+	------------------
+	- add methods to switch between blocking and callback modes of the sockets.
+	- fix compile errors when macros are defined without a value (they are treated as 1)
+
 
 	0.2.0 - 10/03/2021
 	------------------
@@ -84,8 +95,14 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 
-#ifndef ZNET_ENABLE_SSL
+#define ZNET_DO_EXPAND(VAL)  VAL ## 1
+#define ZNET_EXPAND(VAL)     ZNET_DO_EXPAND(VAL)
+
+#if !defined(ZNET_ENABLE_SSL)
 	#define ZNET_ENABLE_SSL 0
+#elif (ZNET_EXPAND(ZNET_ENABLE_SSL) == 1)
+	#undef ZNET_ENABLE_SSL
+	#define ZNET_ENABLE_SSL 1
 #endif // ZNET_ENABLE_SSL
 
 #if ZNET_ENABLE_SSL
@@ -93,14 +110,38 @@
 	#include <openssl/err.h>
 #endif // ZNET_ENABLE_SSL
 
+#if !defined(ZNET_IMPLEMENTATION)
+	#define ZNET_IMPLEMENTATION 0
+#elif (ZNET_EXPAND(ZNET_IMPLEMENTATION) == 1)
+	#undef ZNET_IMPLEMENTATION
+	#define ZNET_IMPLEMENTATION 1
+#endif
+
 #if ZNET_IMPLEMENTATION
-	#define ZNET_UDP_IMPLEMENTATION 1
-	#define ZNET_TCP_IMPLEMENTATION 1
+	#if !defined(ZNET_UDP_IMPLEMENTATION)
+		#define ZNET_UDP_IMPLEMENTATION 1
+	#endif
+
+	#if !defined(ZNET_TCP_IMPLEMENTATION)
+		#define ZNET_TCP_IMPLEMENTATION 1
+	#endif
+#else
+	#if !defined(ZNET_UDP_IMPLEMENTATION)
+		#define ZNET_UDP_IMPLEMENTATION 0
+	#endif
+
+	#if !defined(ZNET_TCP_IMPLEMENTATION)
+		#define ZNET_TCP_IMPLEMENTATION 0
+	#endif
 #endif // ZNET_IMPLEMENTATION
+
 
 #if ZNET_UDP_IMPLEMENTATION || ZNET_TCP_IMPLEMENTATION
 	#define ZNET_SOME_IMPLEMENTATION 1
 #endif // ZNET_UDP_IMPLEMENTATION || ZNET_TCP_IMPLEMENTATION
+
+#undef ZNET_DO_EXPAND
+#undef ZNET_EXPAND
 
 #define ZNET_ERROR_ABORT(fmt, ...) do {     \
 	fprintf(stderr, fmt, ##__VA_ARGS__);    \
@@ -203,14 +244,17 @@ namespace znet
 		ssize_t send(const uint8_t* buf, size_t len);
 
 		// asynchronous
-		void onClose(std::function<void ()>&& callback);
-		void onReceive(std::function<void (const uint8_t*, size_t, const IPAddress& from)>&& callback);
+		void onClose(std::function<void ()> callback);
+		void onReceive(std::function<void (const uint8_t*, size_t, const IPAddress& from)> callback);
 
 		// synchronous
 		ssize_t receive(uint8_t* buf, size_t len, double timeout_secs = 0, IPAddress* from = nullptr);
 
 		void setBlocking(bool blocking);
 		bool isBlocking() const;
+
+		void useCallback(bool use);
+		bool usingCallback() const;
 
 	private:
 		void setup_receiver();
@@ -225,6 +269,8 @@ namespace znet
 
 		IPAddress m_recvaddr = { };
 		IPAddress m_sendaddr = { };
+
+		bool m_usecallback = false;
 
 		// 1500 MTU, plus a little extra
 		static constexpr size_t BUFFER_SIZE = 8192;
@@ -248,14 +294,17 @@ namespace znet
 		ssize_t send(const uint8_t* buf, size_t len);
 
 		// asynchronous
-		void onClose(std::function<void ()>&& callback);
-		void onReceive(std::function<void (const uint8_t*, size_t)>&& callback);
+		void onClose(std::function<void ()> callback);
+		void onReceive(std::function<void (const uint8_t*, size_t)> callback);
 
 		// synchronous
 		ssize_t receive(uint8_t* buf, size_t len, double timeout_secs = 0);
 
 		void setBlocking(bool blocking);
 		bool isBlocking() const;
+
+		void useCallback(bool use);
+		bool usingCallback() const;
 
 	private:
 		void setup_receiver();
@@ -270,6 +319,7 @@ namespace znet
 		std::function<void (const uint8_t*, size_t)> m_callback;
 
 		IPAddress m_addr = { };
+		bool m_usecallback = false;
 
 
 	#if ZNET_ENABLE_SSL
@@ -366,6 +416,9 @@ namespace znet
 
 	TCPSocket::TCPSocket(TCPSocket&& other)
 	{
+		if(other.connected())
+			ZNET_ERROR_ABORT("cannot move socket while it is connected!");
+
 		this->m_sock            = other.m_sock;         other.m_sock = -1;
 		this->m_connected       = other.m_connected;    other.m_connected = false;
 		this->m_buffer          = other.m_buffer;       other.m_buffer = nullptr;
@@ -385,6 +438,9 @@ namespace znet
 	{
 		if(this != &other)
 		{
+			if(other.connected())
+				ZNET_ERROR_ABORT("cannot move socket while it is connected!");
+
 			this->m_sock            = other.m_sock;         other.m_sock = -1;
 			this->m_connected       = other.m_connected;    other.m_connected = false;
 			this->m_buffer          = other.m_buffer;       other.m_buffer = nullptr;
@@ -465,8 +521,6 @@ namespace znet
 	#endif // ZNET_ENABLE_SSL
 
 		this->m_connected = true;
-		this->setup_receiver();
-
 		return true;
 	}
 
@@ -479,7 +533,7 @@ namespace znet
 			this->m_closeCallback();
 
 		// tell the listener thread to die
-		__atomic_store_n(&this->m_connected, false, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&this->m_connected, false, __ATOMIC_RELEASE);
 		if(this->m_thread.joinable())
 			this->m_thread.join();
 
@@ -523,25 +577,39 @@ namespace znet
 		}
 	}
 
-	void TCPSocket::onClose(std::function<void ()>&& callback)
+	void TCPSocket::useCallback(bool use)
+	{
+		__atomic_store_n(&this->m_usecallback, use, __ATOMIC_RELEASE);
+	}
+
+	bool TCPSocket::usingCallback() const
+	{
+		return this->m_usecallback;
+	}
+
+	void TCPSocket::onClose(std::function<void ()> callback)
 	{
 		this->m_closeCallback = std::move(callback);
 	}
 
-	void TCPSocket::onReceive(std::function<void (const uint8_t*, size_t)>&& callback)
+	void TCPSocket::onReceive(std::function<void (const uint8_t*, size_t)> callback)
 	{
 		this->m_callback = std::move(callback);
+
+		if(!this->m_usecallback)
+			this->setup_receiver();
 	}
 
 	void TCPSocket::setup_receiver()
 	{
 		using namespace std::chrono_literals;
 
+		this->useCallback(true);
 		this->m_thread = std::thread([this]() {
 
 			while(true)
 			{
-				if(!this->m_connected)
+				if(!this->m_connected || !this->m_usecallback)
 					break;
 
 				auto bytes = this->do_socket_read(this->m_buffer, BUFFER_SIZE, (0.2s).count());
@@ -554,6 +622,7 @@ namespace znet
 
 	ssize_t TCPSocket::receive(uint8_t* buf, size_t len, double timeout_secs)
 	{
+		this->useCallback(false);
 		return this->do_socket_read(buf, len, timeout_secs);
 	}
 
@@ -572,8 +641,7 @@ namespace znet
 		else
 	#endif // ZNET_ENABLE_SSL
 		{
-			auto bytes = recv(this->m_sock, buf, len, 0);
-			if(bytes < 0)
+			if(auto bytes = recv(this->m_sock, buf, len, 0); bytes < 0)
 			{
 				if(errno == EAGAIN || errno == EWOULDBLOCK)
 					return 0;
@@ -583,8 +651,10 @@ namespace znet
 
 				ZNET_ERROR_RETURN(-1, "socket error: %s\n", strerror(errno));
 			}
-
-			return bytes;
+			else
+			{
+				return bytes;
+			}
 		}
 	}
 
@@ -643,8 +713,6 @@ namespace znet
 
 		this->m_buffer = new uint8_t[BUFFER_SIZE];
 		this->m_callback = [](auto...) { };
-
-		this->setup_receiver();
 	}
 
 	UDPSocket::~UDPSocket()
@@ -700,12 +768,22 @@ namespace znet
 		return detail::get_blocking(this->m_sock);
 	}
 
+	void UDPSocket::useCallback(bool use)
+	{
+		__atomic_store_n(&this->m_usecallback, use, __ATOMIC_RELEASE);
+	}
+
+	bool UDPSocket::usingCallback() const
+	{
+		return this->m_usecallback;
+	}
+
 	bool UDPSocket::bind()
 	{
 		if(::bind(this->m_sock, this->m_recvaddr.ptr(), this->m_recvaddr.size()) < 0)
 			ZNET_ERROR_RETURN(false, "failed to bind udp socket: %s\n", strerror(errno));
 
-		__atomic_store_n(&this->m_connected, true, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&this->m_connected, true, __ATOMIC_RELEASE);
 		return true;
 	}
 
@@ -718,7 +796,7 @@ namespace znet
 			this->m_closeCallback();
 
 		// tell the listener thread to die
-		__atomic_store_n(&this->m_connected, false, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&this->m_connected, false, __ATOMIC_RELEASE);
 		if(this->m_thread.joinable())
 			this->m_thread.join();
 
@@ -737,25 +815,29 @@ namespace znet
 		this->m_closeCallback = { };
 	}
 
-	void UDPSocket::onClose(std::function<void ()>&& callback)
+	void UDPSocket::onClose(std::function<void ()> callback)
 	{
 		this->m_closeCallback = std::move(callback);
 	}
 
-	void UDPSocket::onReceive(std::function<void (const uint8_t*, size_t, const IPAddress& from)>&& callback)
+	void UDPSocket::onReceive(std::function<void (const uint8_t*, size_t, const IPAddress& from)> callback)
 	{
 		this->m_callback = std::move(callback);
+
+		if(!this->m_usecallback)
+			this->setup_receiver();
 	}
 
 	void UDPSocket::setup_receiver()
 	{
 		using namespace std::chrono_literals;
 
+		this->useCallback(true);
 		this->m_thread = std::thread([this]() {
 
 			while(true)
 			{
-				if(!this->m_connected)
+				if(!this->m_connected || !this->m_usecallback)
 					break;
 
 				IPAddress addr = { };
@@ -774,6 +856,7 @@ namespace znet
 
 	ssize_t UDPSocket::receive(uint8_t* buf, size_t len, double timeout_secs, IPAddress* from)
 	{
+		this->useCallback(false);
 		return this->do_socket_read(buf, len, timeout_secs, from);
 	}
 
@@ -830,7 +913,8 @@ namespace znet
 	IPAddress IPAddress::hostname4(const std::string& host, uint16_t port)
 	{
 		struct addrinfo hints = {
-			.ai_family = AF_INET
+			.ai_family = AF_INET,
+			.ai_flags = (AI_V4MAPPED | AI_ADDRCONFIG),
 		};
 
 		struct addrinfo* info = nullptr;
