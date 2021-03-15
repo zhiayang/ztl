@@ -8,15 +8,17 @@ but in C++, with templates. duh.
 
 library | description
 --------|------------
-zpr     | type-safe printf; std::format for C++17, but not so bloated and overkill
+zpr     | (freestanding) type-safe printf; std::format for C++17, but not so bloated and overkill
+zbuf    | (freestanding) lightweight stretchy buffers and spans, and a superior string_view
 znet    | lightweight socket wrapper, with TCP, UDP, and SSL support
-zfu     | functional utilities. **best not to use this library**.
+zurl    | http/1.1 request library, depends on zbuf and znet
 
 
 # use
 
-Each header file is standalone, and includes minimal headers from the C++ STL. Just copy and paste it into
-your project, as header-only libraries should be. Some libraries might need `_IMPLEMENTATION` macros to be defined, so take note of that.
+Libraries marked *(freestanding)* can be configured to depend only on the freestanding set of C/C++ headers (usually `stdint.h`, `stddef.h`, that kind of stuff). These libraries can also be configured as not necessarily freestanding, but without using the C++ STL (there is a subtle difference).
+
+Usage is as simple as copying the required header files into your project and `#include`-ing them. Some of them require `_IMPLEMENTATION` macros, read their documentation for more info. Also, some of them require others (eg. `zurl` requires both `znet` and `zbuf`), so those must be copied as well.
 
 All libraries are licensed under the Apache License 2.0.
 
@@ -27,4 +29,6 @@ All libraries are licensed under the Apache License 2.0.
 
 `znet` is not exactly production-ready, but it is being used in production.
 
-`zfu` isn't really optimised very well, so probably don't use it.
+`zbuf` is production ready, and is feature-complete.
+
+`zurl`  is not production ready, and not even feature-complete.
