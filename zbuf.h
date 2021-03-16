@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 1.0.0
+	Version 1.0.1
 	=============
 
 
@@ -58,6 +58,13 @@
 
 	Version History
 	===============
+
+	1.0.1 - 16/03/2021
+	------------------
+	Bug fixes:
+	- make begin() and end() for str_view inline
+
+
 
 	1.0.0 - 14/03/2021
 	------------------
@@ -256,8 +263,8 @@ namespace zbuf
 	#endif // ZBUF_USE_STD
 
 
-	const char* begin(const str_view& sv) { return sv.begin(); }
-	const char* end(const str_view& sv) { return sv.end(); }
+	inline const char* begin(const str_view& sv) { return sv.begin(); }
+	inline const char* end(const str_view& sv) { return sv.end(); }
 
 
 	struct Buffer
