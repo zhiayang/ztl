@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 1.0.1
+	Version 1.0.2
 	=============
 
 
@@ -58,6 +58,13 @@
 
 	Version History
 	===============
+
+	1.0.2 - 16/03/2021
+	------------------
+	Bug fixes:
+	- fix ambiguous (read: unnecessary) operator== and operator!= for str_view
+
+
 
 	1.0.1 - 16/03/2021
 	------------------
@@ -255,10 +262,7 @@ namespace zbuf
 	};
 
 	#if ZBUF_USE_STD
-		inline bool operator== (str_view sv, const std::string& other) { return sv == str_view(other); }
 		inline bool operator== (const std::string& other, str_view sv) { return sv == str_view(other); }
-
-		inline bool operator!= (str_view sv, std::string_view other) { return sv != str_view(other); }
 		inline bool operator!= (std::string_view other, str_view sv) { return sv != str_view(other); }
 	#endif // ZBUF_USE_STD
 
