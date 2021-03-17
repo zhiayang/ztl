@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 1.0.2
+	Version 1.0.3
 	=============
 
 
@@ -58,6 +58,13 @@
 
 	Version History
 	===============
+
+	1.0.3 - 17/03/2021
+	------------------
+	Bug fixes:
+	- fix completely broken comparison for str_view
+
+
 
 	1.0.2 - 16/03/2021
 	------------------
@@ -160,8 +167,9 @@ namespace zbuf
 
 		inline bool operator== (const str_view& other) const
 		{
-			return (this->ptr == other.ptr && this->len == other.len)
-				|| (strncmp(this->ptr, other.ptr, detail::min(this->len, other.len)) == 0);
+			return (this->len == other.len) &&
+				(this->ptr == other.ptr || (strncmp(this->ptr, other.ptr, detail::min(this->len, other.len)) == 0)
+			);
 		}
 
 		inline bool operator!= (const str_view& other) const
