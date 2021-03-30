@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 1.0.3
+	Version 1.0.4
 	=============
 
 
@@ -58,6 +58,12 @@
 
 	Version History
 	===============
+
+	1.0.4 - 30/03/2021
+	------------------
+	Add '.back()' and '.front()' for str_view
+
+
 
 	1.0.3 - 17/03/2021
 	------------------
@@ -184,6 +190,9 @@ namespace zbuf
 		inline size_t size() const { return this->len; }
 		inline bool empty() const { return this->len == 0; }
 		inline const char* data() const { return this->ptr; }
+
+		char front() const { return this->ptr[0]; }
+		char back() const { return this->ptr[this->len - 1]; }
 
 		inline void clear() { this->ptr = 0; this->len = 0; }
 
