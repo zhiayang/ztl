@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.1.12
+	Version 2.1.13
 	==============
 
 
@@ -181,6 +181,12 @@
 
 	Version History
 	===============
+
+	2.1.13 - 23/04/2021
+	-------------------
+	Bug fixes:
+	- fix implicit conversion warning on MSVC in number printing
+
 
 	2.1.12 - 15/03/2021
 	-------------------
@@ -1397,7 +1403,7 @@ namespace zpr
 			}
 
 			if(value < 0x10)
-				*(--ptr) = hex_digit(value);
+				*(--ptr) = hex_digit(static_cast<int>(value));
 
 			else
 				copy((ptr -= 2), &lookup_table[value * 2]);
@@ -1466,7 +1472,7 @@ namespace zpr
 			}
 
 			if(value < 10)
-				*(--ptr) = (value + '0');
+				*(--ptr) = static_cast<char>(value + '0');
 
 			else
 				copy((ptr -= 2), &lookup_table[value * 2]);
