@@ -43,8 +43,8 @@
 
 
 /*
-	Version 2.1.13
-	==============
+	Version 2.2.0
+	=============
 
 
 
@@ -182,10 +182,18 @@
 	Version History
 	===============
 
+	2.2.0 - 27/04/2021
+	------------------
+	Add 'alternate' flag for the iterable printers; if true, then the opening and closing brackets ('[' and ']') and
+	the commas (',') between items are *not* printed. As a reminder, use '{#}' to specify alternate printing mode.
+
+
+
 	2.1.13 - 23/04/2021
 	-------------------
 	Bug fixes:
 	- fix implicit conversion warning on MSVC in number printing
+
 
 
 	2.1.12 - 15/03/2021
@@ -2183,21 +2191,27 @@ namespace zpr
 		{
 			if(begin(x) == end(x))
 			{
-				cb("[ ]");
+				if(!args.alternate())
+					cb("[ ]");
 				return;
 			}
 
-			cb("[");
+			if(!args.alternate())
+				cb("[");
+
 			for(auto it = begin(x);;)
 			{
 				detail::print_one(static_cast<Cb&&>(cb), args, *it);
 				++it;
 
-				if(it != end(x)) cb(", ");
-				else             break;
+				if(it != end(x) && !args.alternate())
+					cb(", ");
+				else
+					break;
 			}
 
-			cb("]");
+			if(!args.alternate())
+				cb("]");
 		}
 	};
 
