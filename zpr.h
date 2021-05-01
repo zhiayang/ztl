@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.2.1
+	Version 2.3.0
 	=============
 
 
@@ -181,6 +181,20 @@
 
 	Version History
 	===============
+
+	2.3.0 - 01/05/2021
+	------------------
+	Bug fixes:
+	- change the signature of zpr::sprint(char* buf, size_t sz, str_view fmt, ...);
+	  new signature: to be zpr::sprint(size_t sz, char* buf, str_view fmt, ...)
+
+	  this is necessary because msvc cannot differentiate between sprint(char*, size_t, str_view, ...)
+	  and sprint(str_view, ...), and would complain about an ambiguous overload.
+
+	  This is a potentially breaking change, hence the minor version bump.
+
+
+
 
 	2.2.1 - 01/05/2021
 	------------------
@@ -1845,7 +1859,7 @@ namespace zpr
 	}
 
 	template <typename... Args>
-	size_t sprint(char* buf, size_t len, tt::str_view fmt, Args&&... args)
+	size_t sprint(size_t len, char* buf, tt::str_view fmt, Args&&... args)
 	{
 		auto appender = detail::buffer_appender(buf, len);
 		detail::print(appender, fmt,
