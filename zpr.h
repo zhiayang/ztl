@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.2.0
+	Version 2.2.1
 	=============
 
 
@@ -181,6 +181,14 @@
 
 	Version History
 	===============
+
+	2.2.1 - 01/05/2021
+	------------------
+	Improve the `file_appender` so that newlines are written together with the last part of the buffer in
+	a single call to fwrite() -- this hopefully mitigates lines being broken up right at the newline when
+	printing in multithreaded scenarios.
+
+
 
 	2.2.0 - 27/04/2021
 	------------------
@@ -1696,20 +1704,34 @@ namespace zpr
 			inline void flush(bool last = false)
 			{
 				if(!last && static_cast<size_t>(ptr - buf) < Limit)
+				{
+					if constexpr (Newline)
+						this->buf[ptr - buf] = '\n';
+
 					return;
+				}
 
-				fwrite(buf, sizeof(char), ptr - buf, fd);
-				written += ptr - buf;
+				if(!last || !Newline)
+				{
+					fwrite(buf, sizeof(char), ptr - buf, fd);
+					written += ptr - buf;
 
-				if(last && Newline)
-					written++, fputc('\n', fd);
+					ptr = buf;
+				}
+				else if(last && Newline)
+				{
+					// here's a special trick -- write one extra, because we always ensure that
+					// "one-past" the last character in our buffer is a newline.
+					fwrite(buf, sizeof(char), ptr - buf + 1, fd);
+					written += (ptr - buf) + 1;
 
-				ptr = buf;
+					ptr = buf;
+				}
 			}
 
 			FILE* fd = 0;
 
-			char buf[Limit];
+			char buf[Limit + 1];
 			char* ptr = &buf[0];
 			size_t& written;
 		};
