@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.3.0
+	Version 2.3.1
 	=============
 
 
@@ -181,6 +181,13 @@
 
 	Version History
 	===============
+
+	2.3.1 - 01/05/2021
+	------------------
+	Bug fixes:
+	- fix a bug where the #-printing of iterables only printed the first element
+
+
 
 	2.3.0 - 01/05/2021
 	------------------
@@ -2240,10 +2247,15 @@ namespace zpr
 				detail::print_one(static_cast<Cb&&>(cb), args, *it);
 				++it;
 
-				if(it != end(x) && !args.alternate())
-					cb(", ");
+				if(it != end(x))
+				{
+					if(!args.alternate())
+						cb(", ");
+				}
 				else
+				{
 					break;
+				}
 			}
 
 			if(!args.alternate())
