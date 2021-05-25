@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.4.2
+	Version 2.4.3
 	=============
 
 
@@ -1932,6 +1932,15 @@ namespace zpr
 			template <typename Cb>
 			void print(T x, Cb&& cb, format_args args)
 			{
+				if(args.specifier == 'c')
+				{
+					// we can't access the print_formatter<char> specialisation here (because... declaration order)
+					// so just print it as a string, which is what we do in the char formatter anyway.
+					detail::print_string(static_cast<Cb&&>(cb), reinterpret_cast<char*>(&x), 1,
+						static_cast<format_args&&>(args));
+					return;
+				}
+
 				int base = 10;
 				if((args.specifier | 0x20) == 'x')  base = 16;
 				else if(args.specifier == 'b')      base = 2;
@@ -2118,7 +2127,16 @@ namespace zpr
 		template <typename Cb>
 		void print(char x, Cb&& cb, format_args args)
 		{
-			detail::print_string(static_cast<Cb&&>(cb), &x, 1, static_cast<format_args&&>(args));
+			if(args.specifier != -1 && args.specifier != 'c')
+			{
+				print_formatter<unsigned char>().print(static_cast<unsigned char>(x),
+					static_cast<Cb&&>(cb),
+					static_cast<format_args&&>(args));
+			}
+			else
+			{
+				detail::print_string(static_cast<Cb&&>(cb), &x, 1, static_cast<format_args&&>(args));
+			}
 		}
 	};
 
@@ -2260,6 +2278,13 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.4.3 - 25/05/2021
+	------------------
+	Bug fixes:
+	- fix ignored specifier when printing a `char`
+
+
 
 	2.4.2 - 25/05/2021
 	------------------
