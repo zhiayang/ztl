@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.4.1
+	Version 2.4.2
 	=============
 
 
@@ -1662,8 +1662,7 @@ namespace zpr
 	size_t cprint(CallbackFn&& callback, tt::str_view fmt, Args&&... args)
 	{
 		auto appender = detail::callback_appender(&callback, /* newline: */ false);
-		detail::print(appender, fmt,
-			static_cast<Args&&>(args)...);
+		detail::print(appender, fmt, static_cast<Args&&>(args)...);
 
 		return appender.size();
 	}
@@ -1685,8 +1684,7 @@ namespace zpr
 	size_t cprintln(CallbackFn&& callback, tt::str_view fmt, Args&&... args)
 	{
 		auto appender = detail::callback_appender(&callback, /* newline: */ true);
-		detail::print(appender, fmt,
-			static_cast<Args&&>(args)...);
+		detail::print(appender, fmt, static_cast<Args&&>(args)...);
 
 		return appender.size();
 	}
@@ -1708,8 +1706,7 @@ namespace zpr
 	size_t sprint(size_t len, char* buf, tt::str_view fmt, Args&&... args)
 	{
 		auto appender = detail::buffer_appender(buf, len);
-		detail::print(appender, fmt,
-			static_cast<Args&&>(args)...);
+		detail::print(appender, fmt, static_cast<Args&&>(args)...);
 
 		return appender.size();
 	}
@@ -1758,8 +1755,8 @@ namespace zpr
 	size_t print(tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret), fmt,
-			static_cast<Args&&>(args)...);
+		auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret);
+		detail::print(appender, fmt, static_cast<Args&&>(args)...);
 
 		return ret;
 	}
@@ -1777,8 +1774,8 @@ namespace zpr
 	size_t println(tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		auto cb = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret);
-		detail::print(cb, fmt, static_cast<Args&&>(args)...);
+		auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret);
+		detail::print(appender, fmt, static_cast<Args&&>(args)...);
 
 		return ret;
 	}
@@ -1797,8 +1794,8 @@ namespace zpr
 	size_t fprint(FILE* file, tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		auto cb = detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret);
-		detail::print(cb, fmt, static_cast<Args&&>(args)...);
+		auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret);
+		detail::print(appender, fmt, static_cast<Args&&>(args)...);
 
 		return ret;
 	}
@@ -1817,8 +1814,8 @@ namespace zpr
 	size_t fprintln(FILE* file, tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		auto cb = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret);
-		detail::print(cb, fmt, static_cast<Args&&>(args)...);
+		auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret);
+		detail::print(appender, fmt, static_cast<Args&&>(args)...);
 
 		return ret;
 	}
@@ -2236,8 +2233,8 @@ namespace zpr
 	std::string sprint(tt::str_view fmt, Args&&... args)
 	{
 		std::string buf;
-		detail::print(detail::string_appender(buf), fmt,
-			static_cast<Args&&>(args)...);
+		auto appender = detail::string_appender(buf);
+		detail::print(appender, fmt, static_cast<Args&&>(args)...);
 
 		return buf;
 	}
@@ -2263,6 +2260,13 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.4.2 - 25/05/2021
+	------------------
+	Bug fixes:
+	- fix broken std::string sprint()
+
+
 
 	2.4.1 - 25/05/2021
 	------------------
