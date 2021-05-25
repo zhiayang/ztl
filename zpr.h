@@ -915,6 +915,20 @@ namespace zpr
 			int prec;
 		};
 
+		template <typename... Args>
+		struct __forward_helper
+		{
+			template <typename... Xs>
+			__forward_helper(tt::str_view fmt, Xs&&... xs) : fmt(static_cast<tt::str_view&&>(fmt))
+			{
+				size_t idx = 0;
+				((values[idx++] = &xs), ...);
+			}
+
+			tt::str_view fmt;
+			void* values[sizeof...(Args)] { };
+		};
+
 		struct dummy_appender
 		{
 			void operator() (char c);
@@ -1021,7 +1035,7 @@ namespace zpr
 		}
 
 		template <typename CallbackFn>
-		size_t print_string(CallbackFn&& cb, const char* str, size_t len, format_args args)
+		size_t print_string(CallbackFn& cb, const char* str, size_t len, format_args args)
 		{
 			int64_t string_length = 0;
 
@@ -1043,7 +1057,7 @@ namespace zpr
 		}
 
 		template <typename CallbackFn>
-		size_t print_special_floating(CallbackFn&& cb, double value, format_args args)
+		size_t print_special_floating(CallbackFn& cb, double value, format_args args)
 		{
 			// uwu. apparently, `inf` and `nan` are never truncated.
 			args.set_precision(999);
@@ -1072,7 +1086,7 @@ namespace zpr
 
 		// forward declare these
 		template <typename CallbackFn>
-		size_t print_floating(CallbackFn&& cb, double value, format_args args);
+		size_t print_floating(CallbackFn& cb, double value, format_args args);
 
 		template <typename T>
 		char* print_decimal_integer(char* buf, size_t bufsz, T value);
@@ -1080,7 +1094,7 @@ namespace zpr
 
 
 		template <typename CallbackFn>
-		size_t print_exponent(CallbackFn&& cb, double value, format_args args)
+		size_t print_exponent(CallbackFn& cb, double value, format_args args)
 		{
 			constexpr int DEFAULT_PRECISION = 6;
 
@@ -1223,7 +1237,7 @@ namespace zpr
 
 
 		template <typename CallbackFn>
-		size_t print_floating(CallbackFn&& cb, double value, format_args args)
+		size_t print_floating(CallbackFn& cb, double value, format_args args)
 		{
 			constexpr int DEFAULT_PRECISION = 6;
 			constexpr size_t MAX_BUFFER_LEN = 128;
@@ -1552,7 +1566,7 @@ namespace zpr
 		};
 
 		template <typename CallbackFn, typename T>
-		void print_one(CallbackFn&& cb, format_args fmt_args, T&& value)
+		void print_one(CallbackFn& cb, format_args fmt_args, T&& value)
 		{
 			using Decayed_T = tt::decay_t<T>;
 
@@ -1562,17 +1576,17 @@ namespace zpr
 			if constexpr (has_formatter<T>::value)
 			{
 				print_formatter<T>().print(static_cast<T&&>(value),
-					static_cast<CallbackFn&&>(cb), static_cast<format_args&&>(fmt_args));
+					cb, static_cast<format_args&&>(fmt_args));
 			}
 			else
 			{
 				print_formatter<Decayed_T>().print(static_cast<T&&>(value),
-					static_cast<CallbackFn&&>(cb), static_cast<format_args&&>(fmt_args));
+					cb, static_cast<format_args&&>(fmt_args));
 			}
 		}
 
-		template <typename CallbackFn, typename T>
-		void skip_fmts(__print_state_t* pst, CallbackFn&& cb, T&& value)
+		template <typename CallbackFn, typename T, bool TypeErased = false>
+		void skip_fmts(__print_state_t* pst, CallbackFn& cb, tt::conditional_t<TypeErased, void*, T&&> value)
 		{
 			while((static_cast<size_t>(pst->end - pst->fmt) <= pst->len) && pst->end && *pst->end)
 			{
@@ -1600,7 +1614,16 @@ namespace zpr
 					pst->end++;
 
 					auto fmt_spec = parse_fmt_spec(tt::str_view(tmp, pst->end - tmp));
-					print_one(static_cast<CallbackFn&&>(cb), static_cast<format_args&&>(fmt_spec), static_cast<T&&>(value));
+
+					if constexpr (TypeErased)
+					{
+						print_one(cb, static_cast<format_args&&>(fmt_spec),
+							*reinterpret_cast<typename tt::add_pointer<T>::type>(value));
+					}
+					else
+					{
+						print_one(cb, static_cast<format_args&&>(fmt_spec), static_cast<T&&>(value));
+					}
 
 					pst->beg = pst->end;
 					break;
@@ -1627,10 +1650,8 @@ namespace zpr
 
 
 
-
-
 		template <typename CallbackFn, typename... Args>
-		void print(CallbackFn&& cb, tt::str_view sv, Args&&... args)
+		void print_erased(CallbackFn& cb, tt::str_view sv, void* args[])
 		{
 			__print_state_t st;
 			st.len = sv.size();
@@ -1638,14 +1659,30 @@ namespace zpr
 			st.beg = sv.data();
 			st.end = sv.data();
 
-			(skip_fmts(&st, static_cast<CallbackFn&&>(cb), static_cast<Args&&>(args)), ...);
+			size_t idx = 0;
+			(skip_fmts<CallbackFn, Args&&, true>(&st, cb, args[idx++]), ...);
+
+			// flush
+			cb(st.beg, st.len - (st.beg - st.fmt));
+		}
+
+		template <typename CallbackFn, typename... Args>
+		void print(CallbackFn& cb, tt::str_view sv, Args&&... args)
+		{
+			__print_state_t st;
+			st.len = sv.size();
+			st.fmt = sv.data();
+			st.beg = sv.data();
+			st.end = sv.data();
+
+			(skip_fmts<CallbackFn, Args&&>(&st, cb, static_cast<Args&&>(args)), ...);
 
 			// flush
 			cb(st.beg, st.len - (st.beg - st.fmt));
 		}
 
 		template <size_t N, typename CallbackFn, typename... Args>
-		void print(CallbackFn&& cb, const char (&fmt)[N], Args&&... args)
+		void print(CallbackFn& cb, const char (&fmt)[N], Args&&... args)
 		{
 			print(cb, tt::str_view(fmt, N - 1), static_cast<Args&&>(args)...);
 		}
@@ -1876,6 +1913,13 @@ namespace zpr
 	}
 
 
+	template <typename... Args>
+	auto fwd(tt::str_view fmt, Args&&... args)
+	{
+		return detail::__forward_helper<Args&&...>(static_cast<tt::str_view&&>(fmt), static_cast<Args&&>(args)...);
+	}
+
+
 
 // if we are freestanding, we don't have stdio, so we can't print to "stdout".
 #if !ZPR_FREESTANDING
@@ -1894,8 +1938,8 @@ namespace zpr
 	size_t println(tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret), fmt,
-			static_cast<Args&&>(args)...);
+		auto cb = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret);
+		detail::print(cb, fmt, static_cast<Args&&>(args)...);
 
 		return ret;
 	}
@@ -1904,8 +1948,8 @@ namespace zpr
 	size_t fprint(FILE* file, tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret), fmt,
-			static_cast<Args&&>(args)...);
+		auto cb = detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret);
+		detail::print(cb, fmt, static_cast<Args&&>(args)...);
 
 		return ret;
 	}
@@ -1914,8 +1958,8 @@ namespace zpr
 	size_t fprintln(FILE* file, tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		detail::print(detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret), fmt,
-			static_cast<Args&&>(args)...);
+		auto cb = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret);
+		detail::print(cb, fmt, static_cast<Args&&>(args)...);
 
 		return ret;
 	}
@@ -1981,6 +2025,17 @@ namespace zpr
 			args.set_width(x.width);
 			args.set_precision(x.prec);
 			detail::print_one(static_cast<Cb&&>(cb), static_cast<format_args&&>(args), static_cast<T&&>(x.arg));
+		}
+	};
+
+	template <typename... Args>
+	struct print_formatter<detail::__forward_helper<Args...>>
+	{
+		template <typename Cb, typename F = detail::__forward_helper<Args...>>
+		void print(F&& fwd, Cb&& cb, format_args args)
+		{
+			(void) args;
+			detail::print_erased<Cb, Args&&...>(static_cast<Cb&&>(cb), static_cast<tt::str_view&&>(fwd.fmt), fwd.values);
 		}
 	};
 
