@@ -11,7 +11,6 @@
 #include <stdio.h>
 
 #include "zpr.h"
-#include "zpr2.h"
 
 #include <cassert>
 #include <fmt/core.h>

@@ -2,3 +2,5 @@
 .vscode
 /test
 test.cpp
+tests/zpr/asdf
+tests/zpr/bench
