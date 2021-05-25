@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.3.1
+	Version 2.4.1
 	=============
 
 
@@ -170,270 +170,12 @@
 	* only available if ZPR_FREESTANDING != 0: print to the specified FILE*, followed by a newline '\n'.
 	size_t fprintln(FILE* file, tt::str_view fmt, Args&&... args);
 
+	* similar to sprint(), but it is meant to be used as an argument to an "outer" call to another
+	* print function; the purpose is to avoid an unnecessary round-trip through a std::string.
+	auto fwd(tt::str_view fmt, Args&&... args);
 
 
-
-
-
-
-
-
-
-	Version History
-	===============
-
-	2.3.1 - 01/05/2021
-	------------------
-	Bug fixes:
-	- fix a bug where the #-printing of iterables only printed the first element
-
-
-
-	2.3.0 - 01/05/2021
-	------------------
-	Bug fixes:
-	- change the signature of zpr::sprint(char* buf, size_t sz, str_view fmt, ...);
-	  new signature: to be zpr::sprint(size_t sz, char* buf, str_view fmt, ...)
-
-	  this is necessary because msvc cannot differentiate between sprint(char*, size_t, str_view, ...)
-	  and sprint(str_view, ...), and would complain about an ambiguous overload.
-
-	  This is a potentially breaking change, hence the minor version bump.
-
-
-
-
-	2.2.1 - 01/05/2021
-	------------------
-	Improve the `file_appender` so that newlines are written together with the last part of the buffer in
-	a single call to fwrite() -- this hopefully mitigates lines being broken up right at the newline when
-	printing in multithreaded scenarios.
-
-
-
-	2.2.0 - 27/04/2021
-	------------------
-	Add 'alternate' flag for the iterable printers; if true, then the opening and closing brackets ('[' and ']') and
-	the commas (',') between items are *not* printed. As a reminder, use '{#}' to specify alternate printing mode.
-
-
-
-	2.1.13 - 23/04/2021
-	-------------------
-	Bug fixes:
-	- fix implicit conversion warning on MSVC in number printing
-
-
-
-	2.1.12 - 15/03/2021
-	-------------------
-	Bug fixes:
-	- fix handling of control macros when they are defined without a value. Now they will not generate errors, and are
-		treated as TRUE. Also update the documentation about this.
-
-
-
-	2.1.11 - 15/03/2021
-	-------------------
-	Bug fixes:
-	- fix broken drop() and take_last() for str_view... again
-
-
-
-	2.1.10 - 02/01/2021
-	-------------------
-	Bug fixes:
-	- fix truncated `inf` and `nan` when precision is specified.
-
-
-
-	2.1.9 - 23/12/2020
-	------------------
-	Bug fixes:
-	- fix unused variable warning when lookup tables were disabled
-	- fix pointless assertion in integer printing (`sizeof(T) <= 64` -> `sizeof(T) <= 8`)
-
-
-
-	2.1.8 - 14/12/2020
-	------------------
-	Bug fixes:
-	- fix incorrect drop(), drop_last(), take(), and take_last() on tt::str_view
-
-
-
-	2.1.7 - 21/11/2020
-	------------------
-	Bug fixes:
-	- fix warning on member initialisation order for cprint
-
-
-
-	2.1.6 - 20/11/2020
-	------------------
-	Bug fixes:
-	- fix broken std::pair printing
-
-
-
-	2.1.5 - 17/11/2020
-	------------------
-	Bug fixes:
-	- fix broken binary integer printing
-
-
-
-	2.1.4 - 13/11/2020
-	------------------
-	Bug fixes:
-	- fix 'comparison between integers of different signs' (or whatever) warning
-
-
-
-	2.1.3 - 04/10/2020
-	------------------
-	Bug fixes:
-	- fix an issue preventing user-defined formatters from calling cprint() with the callback given to them
-
-
-
-	2.1.2 - 01/10/2020
-	------------------
-	Bug fixes:
-	- fix bool and char not respecting width specifier
-	- fix warnings on -Wall -Wextra
-	- revert back to memcpy due to alignment concerns
-
-
-
-	2.1.1 - 29/09/2020
-	------------------
-	Remove tt::forward and tt::move to cut down on templates (they're just glorified static_cast<T&&>s anyway)
-
-	Bug fixes:
-	- fix potential template failure for signed and unsigned char
-
-
-
-	2.1.0 - 28/09/2020
-	------------------
-	Remove redundant overloads of all the print functions taking const char (&)[N], since tt:str_view
-	has an implicit constructor for that.
-
-	Bug fixes:
-	- fix the implicit constructor for str_view taking const char (&)[N]
-
-
-
-	2.0.2 - 28/09/2020
-	------------------
-	Small performance improvements. Reduced enable_if usage in favour of template specialisation to improve
-	compile times.
-
-
-
-	2.0.1 - 28/09/2020
-	------------------
-	Add `ln` versions of the cprint() functions.
-
-
-
-	2.0.0 - 27/09/2020
-	------------------
-	Completely rewrite the internals; now no longer tuple-based, and we're back to template packs. However,
-	instead of using recursion, we are now expanding with fold expressions. This comes with one drawback, however;
-	we now do not support in-stream width and precision specifiers (eg. {*.s}). instead, we expose 3 new functions,
-	w(), p(), and wp(), which do what their names would suggest; see the documentation above for more info.
-
-	Major version bump due to breaking api change.
-
-
-
-	1.6.0 - 26/09/2020
-	------------------
-	Add the ZPR_FREESTANDING define; see documentation above for details. Also add cprint() and family, which
-	allow using a callback of the form `void (*)(char*, size_t)` -- or a compatible template function object,
-	to print.
-
-	Bug fixes:
-	- fix printing integer zeroes.
-	- fix printing hex digits.
-
-
-
-	1.5.0 - 10/09/2020
-	------------------
-	Change the print_formatter interface subtly. Now, you can choose to specialise the template for both the decayed
-	type (eg. int, const char*), or for the un-decayed type (eg. const int&, const char (&)[N]). The compiler will
-	choose the appropriate specialisation, preferring the latter (not-decayed) type, if it exists.
-
-	Bug fixes:
-	- fix issues where we would write NULL bytes into the output stream, due to the 'char(&)[N]' change.
-	- fix right-padding and zero-padding behaviour
-
-
-
-	1.4.0 - 10/09/2020
-	------------------
-	Completely remove dependency on STL types. sadly this includes lots of re-implemented type_traits, but an okay
-	cost to pay, I suppose. Introduces ZPR_USE_STD define to control this.
-
-	Bug fixes: lots of fixes on formatting correctness; we should now be correct wrt. printf.
-
-
-
-	1.3.1 - 09/09/2020
-	------------------
-	Remove dependency on std::to_chars, to slowly wean off STL. Introduce two new #defines:
-	ZPR_DECIMAL_LOOKUP_TABLE, and ZPR_HEXADECIMAL_LOOKUP_TABLE. see docs for info.
-
-
-
-	1.3.0 - 08/09/2020
-	------------------
-	Add overloads for the user-facing print functions that accept std::string_view as the format string. This also
-	works for std::string since string_view has an implicit conversion constructor for it.
-
-	Removed user-facing overloads of print and friends that take 'const char*'; now they either take std::string_view
-	(as above), or (const char&)[].
-
-	Change the behaviour of string printers; now, any iterable type with a value_type typedef equal to 'char'
-	(exactly char -- not signed char, not unsigned char) will print as a string. This lets us cover custom
-	string types as well. A side effect of this is that std::vector<char> will print as a string, which might
-	be unexpected.
-
-	Bug fixes:
-	- broken formatting for floating point numbers
-	- '{}' now uses '%g' format for floating point numbers
-	- '{p}' (ie. '%p') now works, including '{}' for void* and const void*.
-
-
-
-	1.2.0 - 20/07/2020
-	------------------
-	Use floating-point printer from mpaland/printf, letting us actually beat printf in all cases.
-
-
-
-	1.1.1 - 20/07/2020
-	------------------
-	Don't include unistd.h
-
-
-
-	1.1.0 - 20/07/2020
-	------------------
-	Performance improvements: switched to tuple-based arguments instead of parameter-packed recursion. We are now (slightly)
-	faster than printf (as least on two of my systems) as long as no floating-point is involved. (for now we are still forced
-	to call snprintf to print floats... charconv pls)
-
-	Bug fixes: fixed broken escaping of {{ and }}.
-
-
-
-	1.0.0 - 19/07/2020
-	------------------
-	Initial release.
+	Version history has been moved to the bottom of the file.
 */
 
 #pragma once
@@ -1565,6 +1307,16 @@ namespace zpr
 			const char* end;
 		};
 
+		/*
+			Print a single value using the callback function and the given format arguments. This function
+			should be used in user-defined print_formatters, so that inner values (if any) are correctly
+			printed as well. Naturally it also reduces the amount of code that is required.
+
+			Arguments:
+			`cb`        -- the callback function; this should be the same `cb` that is passed to print_formatter::print()
+			`fmt_args`  -- the format specifiers to use
+			`value`     -- the value to print
+		*/
 		template <typename CallbackFn, typename T>
 		void print_one(CallbackFn& cb, format_args fmt_args, T&& value)
 		{
@@ -1647,6 +1399,32 @@ namespace zpr
 		}
 
 
+		/*
+			Print to the specified callback function. This should be used in user-defined print_formatters if
+			there is a need for variadic printing interface (versus print_one). This function should be
+			preferred over `zpr::cprint` since it avoids an additional wrapper struct -- provided that the
+			callback function used is exactly the one passed to print_formatter::print().
+
+			Arguments:
+			`cb`    -- the callback function; this should be the same `cb` passed to print_formatter::print().
+			`sv`    -- the format string
+			`args`  -- the values to print
+		*/
+		template <typename CallbackFn, typename... Args>
+		void print(CallbackFn& cb, tt::str_view sv, Args&&... args)
+		{
+			__print_state_t st;
+			st.len = sv.size();
+			st.fmt = sv.data();
+			st.beg = sv.data();
+			st.end = sv.data();
+
+			(skip_fmts<CallbackFn, Args&&>(&st, cb, static_cast<Args&&>(args)), ...);
+
+			// flush
+			cb(st.beg, st.len - (st.beg - st.fmt));
+		}
+
 
 
 
@@ -1666,28 +1444,16 @@ namespace zpr
 			cb(st.beg, st.len - (st.beg - st.fmt));
 		}
 
-		template <typename CallbackFn, typename... Args>
-		void print(CallbackFn& cb, tt::str_view sv, Args&&... args)
-		{
-			__print_state_t st;
-			st.len = sv.size();
-			st.fmt = sv.data();
-			st.beg = sv.data();
-			st.end = sv.data();
 
-			(skip_fmts<CallbackFn, Args&&>(&st, cb, static_cast<Args&&>(args)), ...);
-
-			// flush
-			cb(st.beg, st.len - (st.beg - st.fmt));
-		}
-
+		// str_view has a constructor that takes the lvalue-ref-to-array, so this overload should
+		// be strictly unnecessary.
+		#if 0
 		template <size_t N, typename CallbackFn, typename... Args>
 		void print(CallbackFn& cb, const char (&fmt)[N], Args&&... args)
 		{
 			print(cb, tt::str_view(fmt, N - 1), static_cast<Args&&>(args)...);
 		}
-
-
+		#endif
 
 	#if ZPR_USE_STD
 		struct string_appender
@@ -1826,8 +1592,6 @@ namespace zpr
 			Fn* callback;
 		};
 
-
-
 		struct buffer_appender
 		{
 			buffer_appender(char* buf, size_t cap) : buf(buf), cap(cap), len(0) { }
@@ -1881,7 +1645,19 @@ namespace zpr
 
 
 
+	/*
+		Print with a user-specified callback function.
 
+		The callback function should have this signature, or something compatible:
+		void callback(const char* str, size_t len)
+
+		Arguments:
+		`callback`  -- the callback function, with an appropriate signature as stated above
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Returns the number of bytes printed.
+	*/
 	template <typename CallbackFn, typename... Args>
 	size_t cprint(CallbackFn&& callback, tt::str_view fmt, Args&&... args)
 	{
@@ -1892,6 +1668,19 @@ namespace zpr
 		return appender.size();
 	}
 
+	/*
+		Print with a user-specified callback function, appending a newline at the end.
+
+		The callback function should have this signature, or something compatible:
+		void callback(const char* str, size_t len)
+
+		Arguments:
+		`callback`  -- the callback function, with an appropriate signature as stated above
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Returns the number of bytes printed.
+	*/
 	template <typename CallbackFn, typename... Args>
 	size_t cprintln(CallbackFn&& callback, tt::str_view fmt, Args&&... args)
 	{
@@ -1902,6 +1691,19 @@ namespace zpr
 		return appender.size();
 	}
 
+	/*
+		Print to a user-specified buffer `buf`, with size `len`. A NULL-terminator is *NOT* inserted.
+		If the number of bytes to print exceeds the size of the buffer, the output is truncated. Again,
+		there is *NO* NULL-terminator, regardless of whether the buffer is filled.
+
+		Arguments:
+		`len`       -- the capacity of the buffer pointed to by `buf`
+		`buf`       -- the buffer into which characters should be printed
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Returns the number of bytes printed.
+	*/
 	template <typename... Args>
 	size_t sprint(size_t len, char* buf, tt::str_view fmt, Args&&... args)
 	{
@@ -1912,7 +1714,26 @@ namespace zpr
 		return appender.size();
 	}
 
+	/*
+		Forward the provided format-string and arguments to another zpr printing function. The implementation
+		of this mechanism creates and stores pointers to the argument values, so you should *NOT* store the
+		return value of a call to zpr::fwd() (especially if the arguments contain rvalues) -- you should only
+		pass it directly as an argument to a zpr::print function.
 
+		zpr::fwd() calls can be nested, ie. you can pass one zpr::fwd() to another zpr::fwd().
+
+		Example usage:
+		zpr::fprintln(stderr, "foo: {}", zpr::fwd("this is: {}", 69));
+
+		In this case, no additional allocation is incurred in creating a temporary buffer to store the result of
+		the inner print, and everything goes straight to the stderr FILE.
+
+		Arguments:
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Again, do not store the return value of this function.
+	*/
 	template <typename... Args>
 	auto fwd(tt::str_view fmt, Args&&... args)
 	{
@@ -1924,6 +1745,15 @@ namespace zpr
 // if we are freestanding, we don't have stdio, so we can't print to "stdout".
 #if !ZPR_FREESTANDING
 
+	/*
+		Print to the standard output stream.
+
+		Arguments:
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Returns the number of bytes printed.
+	*/
 	template <typename... Args>
 	size_t print(tt::str_view fmt, Args&&... args)
 	{
@@ -1934,6 +1764,15 @@ namespace zpr
 		return ret;
 	}
 
+	/*
+		Print to the standard output stream, appending a newline at the end.
+
+		Arguments:
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Returns the number of bytes printed.
+	*/
 	template <typename... Args>
 	size_t println(tt::str_view fmt, Args&&... args)
 	{
@@ -1944,6 +1783,16 @@ namespace zpr
 		return ret;
 	}
 
+	/*
+		Prints to the specified FILE stream.
+
+		Arguments:
+		`file`      -- the stream to print to
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Returns the number of bytes printed.
+	*/
 	template <typename... Args>
 	size_t fprint(FILE* file, tt::str_view fmt, Args&&... args)
 	{
@@ -1954,6 +1803,16 @@ namespace zpr
 		return ret;
 	}
 
+	/*
+		Prints to the specified FILE stream, appending a newline at the end.
+
+		Arguments:
+		`file`      -- the stream to print to
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Returns the number of bytes printed.
+	*/
 	template <typename... Args>
 	size_t fprintln(FILE* file, tt::str_view fmt, Args&&... args)
 	{
@@ -1966,27 +1825,54 @@ namespace zpr
 #endif
 
 
+	/*
+		Create a special wrapper struct that will print its argument with the given width specifier.
+		Example: `zpr::println("foo: {}", zpr::w(10)(69))` will print '69' with a width of 10.
 
+		It is safe to store the value of `zpr::w(10)`, but it is *NOT* safe to store the value of
+		`zpr::w(10)(value)`, especially if `value` is an rvalue.
 
+		Arguments:
+		`width`     -- the width specifier
 
-
-
-
-
-
-
-
-
+		Returns a wrapper struct that accepts the value to print.
+	*/
 	inline detail::__fmtarg_w_helper w(int width)
 	{
 		return detail::__fmtarg_w_helper(width);
 	}
 
+	/*
+		Create a special wrapper struct that will print its argument with the given precision specifier.
+		Example: `zpr::println("foo: {}", zpr::p(10)(6.9))` will print '6.9' with a precision of 10.
+
+		It is safe to store the value of `zpr::p(10)`, but it is *NOT* safe to store the value of
+		`zpr::p(10)(value)`, especially if `value` is an rvalue.
+
+		Arguments:
+		`prec`      -- the precision specifier
+
+		Returns a wrapper struct that accepts the value to print.
+	*/
 	inline detail::__fmtarg_p_helper p(int prec)
 	{
 		return detail::__fmtarg_p_helper(prec);
 	}
 
+	/*
+		Create a special wrapper struct that will print its argument with the given width and precision
+		specifiers. Example: `zpr::println("foo: {}", zpr::wp(10, 5)(6.9))` will print '6.9' with a
+		width of 10 and a precision of 5.
+
+		It is safe to store the value of `zpr::wp(10, 5)`, but it is *NOT* safe to store the value of
+		`zpr::wp(10, 5)(value)`, especially if `value` is an rvalue.
+
+		Arguments:
+		`width`     -- the width specifier
+		`prec`      -- the precision specifier
+
+		Returns a wrapper struct that accepts the value to print.
+	*/
 	inline detail::__fmtarg_wp_helper wp(int width, int prec)
 	{
 		return detail::__fmtarg_wp_helper(width, prec);
@@ -2337,6 +2223,15 @@ namespace zpr
 
 #if ZPR_USE_STD
 
+	/*
+		Prints to a std::string.
+
+		Arguments:
+		`fmt`       -- the format string
+		`args`      -- the values to print
+
+		Returns the std::string.
+	*/
 	template <typename... Args>
 	std::string sprint(tt::str_view fmt, Args&&... args)
 	{
@@ -2362,3 +2257,280 @@ namespace zpr
 	};
 #endif
 }
+
+
+/*
+
+	Version History
+	===============
+
+	2.4.1 - 25/05/2021
+	------------------
+	Improve documentation
+
+
+
+	2.4.0 - 25/05/2021
+	------------------
+	Add `zpr::fwd`, which acts like zpr::sprint(), but it's meant to be passed to another, "outer" call
+	to another printer; for example: `zpr::fprintln(stderr, "hello, {}", zpr::fwd("asdf {}", 69))`. This
+	avoids a round-trip and a string allocation (if you used `sprint`), and everything goes straight to
+	the FILE* in this case.
+
+	It is not safe to store the return value of `zpr::fwd`, especially if its arguments contain rvalues.
+
+
+
+	2.3.1 - 01/05/2021
+	------------------
+	Bug fixes:
+	- fix a bug where the #-printing of iterables only printed the first element
+
+
+
+	2.3.0 - 01/05/2021
+	------------------
+	Bug fixes:
+	- change the signature of zpr::sprint(char* buf, size_t sz, str_view fmt, ...);
+	  new signature: to be zpr::sprint(size_t sz, char* buf, str_view fmt, ...)
+
+	  this is necessary because msvc cannot differentiate between sprint(char*, size_t, str_view, ...)
+	  and sprint(str_view, ...), and would complain about an ambiguous overload.
+
+	  This is a potentially breaking change, hence the minor version bump.
+
+
+
+
+	2.2.1 - 01/05/2021
+	------------------
+	Improve the `file_appender` so that newlines are written together with the last part of the buffer in
+	a single call to fwrite() -- this hopefully mitigates lines being broken up right at the newline when
+	printing in multithreaded scenarios.
+
+
+
+	2.2.0 - 27/04/2021
+	------------------
+	Add 'alternate' flag for the iterable printers; if true, then the opening and closing brackets ('[' and ']') and
+	the commas (',') between items are *not* printed. As a reminder, use '{#}' to specify alternate printing mode.
+
+
+
+	2.1.13 - 23/04/2021
+	-------------------
+	Bug fixes:
+	- fix implicit conversion warning on MSVC in number printing
+
+
+
+	2.1.12 - 15/03/2021
+	-------------------
+	Bug fixes:
+	- fix handling of control macros when they are defined without a value. Now they will not generate errors, and are
+		treated as TRUE. Also update the documentation about this.
+
+
+
+	2.1.11 - 15/03/2021
+	-------------------
+	Bug fixes:
+	- fix broken drop() and take_last() for str_view... again
+
+
+
+	2.1.10 - 02/01/2021
+	-------------------
+	Bug fixes:
+	- fix truncated `inf` and `nan` when precision is specified.
+
+
+
+	2.1.9 - 23/12/2020
+	------------------
+	Bug fixes:
+	- fix unused variable warning when lookup tables were disabled
+	- fix pointless assertion in integer printing (`sizeof(T) <= 64` -> `sizeof(T) <= 8`)
+
+
+
+	2.1.8 - 14/12/2020
+	------------------
+	Bug fixes:
+	- fix incorrect drop(), drop_last(), take(), and take_last() on tt::str_view
+
+
+
+	2.1.7 - 21/11/2020
+	------------------
+	Bug fixes:
+	- fix warning on member initialisation order for cprint
+
+
+
+	2.1.6 - 20/11/2020
+	------------------
+	Bug fixes:
+	- fix broken std::pair printing
+
+
+
+	2.1.5 - 17/11/2020
+	------------------
+	Bug fixes:
+	- fix broken binary integer printing
+
+
+
+	2.1.4 - 13/11/2020
+	------------------
+	Bug fixes:
+	- fix 'comparison between integers of different signs' (or whatever) warning
+
+
+
+	2.1.3 - 04/10/2020
+	------------------
+	Bug fixes:
+	- fix an issue preventing user-defined formatters from calling cprint() with the callback given to them
+
+
+
+	2.1.2 - 01/10/2020
+	------------------
+	Bug fixes:
+	- fix bool and char not respecting width specifier
+	- fix warnings on -Wall -Wextra
+	- revert back to memcpy due to alignment concerns
+
+
+
+	2.1.1 - 29/09/2020
+	------------------
+	Remove tt::forward and tt::move to cut down on templates (they're just glorified static_cast<T&&>s anyway)
+
+	Bug fixes:
+	- fix potential template failure for signed and unsigned char
+
+
+
+	2.1.0 - 28/09/2020
+	------------------
+	Remove redundant overloads of all the print functions taking const char (&)[N], since tt:str_view
+	has an implicit constructor for that.
+
+	Bug fixes:
+	- fix the implicit constructor for str_view taking const char (&)[N]
+
+
+
+	2.0.2 - 28/09/2020
+	------------------
+	Small performance improvements. Reduced enable_if usage in favour of template specialisation to improve
+	compile times.
+
+
+
+	2.0.1 - 28/09/2020
+	------------------
+	Add `ln` versions of the cprint() functions.
+
+
+
+	2.0.0 - 27/09/2020
+	------------------
+	Completely rewrite the internals; now no longer tuple-based, and we're back to template packs. However,
+	instead of using recursion, we are now expanding with fold expressions. This comes with one drawback, however;
+	we now do not support in-stream width and precision specifiers (eg. {*.s}). instead, we expose 3 new functions,
+	w(), p(), and wp(), which do what their names would suggest; see the documentation above for more info.
+
+	Major version bump due to breaking api change.
+
+
+
+	1.6.0 - 26/09/2020
+	------------------
+	Add the ZPR_FREESTANDING define; see documentation above for details. Also add cprint() and family, which
+	allow using a callback of the form `void (*)(char*, size_t)` -- or a compatible template function object,
+	to print.
+
+	Bug fixes:
+	- fix printing integer zeroes.
+	- fix printing hex digits.
+
+
+
+	1.5.0 - 10/09/2020
+	------------------
+	Change the print_formatter interface subtly. Now, you can choose to specialise the template for both the decayed
+	type (eg. int, const char*), or for the un-decayed type (eg. const int&, const char (&)[N]). The compiler will
+	choose the appropriate specialisation, preferring the latter (not-decayed) type, if it exists.
+
+	Bug fixes:
+	- fix issues where we would write NULL bytes into the output stream, due to the 'char(&)[N]' change.
+	- fix right-padding and zero-padding behaviour
+
+
+
+	1.4.0 - 10/09/2020
+	------------------
+	Completely remove dependency on STL types. sadly this includes lots of re-implemented type_traits, but an okay
+	cost to pay, I suppose. Introduces ZPR_USE_STD define to control this.
+
+	Bug fixes: lots of fixes on formatting correctness; we should now be correct wrt. printf.
+
+
+
+	1.3.1 - 09/09/2020
+	------------------
+	Remove dependency on std::to_chars, to slowly wean off STL. Introduce two new #defines:
+	ZPR_DECIMAL_LOOKUP_TABLE, and ZPR_HEXADECIMAL_LOOKUP_TABLE. see docs for info.
+
+
+
+	1.3.0 - 08/09/2020
+	------------------
+	Add overloads for the user-facing print functions that accept std::string_view as the format string. This also
+	works for std::string since string_view has an implicit conversion constructor for it.
+
+	Removed user-facing overloads of print and friends that take 'const char*'; now they either take std::string_view
+	(as above), or (const char&)[].
+
+	Change the behaviour of string printers; now, any iterable type with a value_type typedef equal to 'char'
+	(exactly char -- not signed char, not unsigned char) will print as a string. This lets us cover custom
+	string types as well. A side effect of this is that std::vector<char> will print as a string, which might
+	be unexpected.
+
+	Bug fixes:
+	- broken formatting for floating point numbers
+	- '{}' now uses '%g' format for floating point numbers
+	- '{p}' (ie. '%p') now works, including '{}' for void* and const void*.
+
+
+
+	1.2.0 - 20/07/2020
+	------------------
+	Use floating-point printer from mpaland/printf, letting us actually beat printf in all cases.
+
+
+
+	1.1.1 - 20/07/2020
+	------------------
+	Don't include unistd.h
+
+
+
+	1.1.0 - 20/07/2020
+	------------------
+	Performance improvements: switched to tuple-based arguments instead of parameter-packed recursion. We are now (slightly)
+	faster than printf (as least on two of my systems) as long as no floating-point is involved. (for now we are still forced
+	to call snprintf to print floats... charconv pls)
+
+	Bug fixes: fixed broken escaping of {{ and }}.
+
+
+
+	1.0.0 - 19/07/2020
+	------------------
+	Initial release.
+*/
