@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.4.3
+	Version 2.4.4
 	=============
 
 
@@ -668,7 +668,7 @@ namespace zpr
 			}
 
 			tt::str_view fmt;
-			void* values[sizeof...(Args)] { };
+			const void* values[sizeof...(Args)] { };
 		};
 
 		struct dummy_appender
@@ -1338,7 +1338,7 @@ namespace zpr
 		}
 
 		template <typename CallbackFn, typename T, bool TypeErased = false>
-		void skip_fmts(__print_state_t* pst, CallbackFn& cb, tt::conditional_t<TypeErased, void*, T&&> value)
+		void skip_fmts(__print_state_t* pst, CallbackFn& cb, tt::conditional_t<TypeErased, const void*, T&&> value)
 		{
 			while((static_cast<size_t>(pst->end - pst->fmt) <= pst->len) && pst->end && *pst->end)
 			{
@@ -1370,7 +1370,7 @@ namespace zpr
 					if constexpr (TypeErased)
 					{
 						print_one(cb, static_cast<format_args&&>(fmt_spec),
-							*reinterpret_cast<typename tt::add_pointer<T>::type>(value));
+							*reinterpret_cast<const typename tt::remove_reference<T>::type*>(value));
 					}
 					else
 					{
@@ -1429,7 +1429,7 @@ namespace zpr
 
 
 		template <typename CallbackFn, typename... Args>
-		void print_erased(CallbackFn& cb, tt::str_view sv, void* args[])
+		void print_erased(CallbackFn& cb, tt::str_view sv, const void* args[])
 		{
 			__print_state_t st;
 			st.len = sv.size();
@@ -2278,6 +2278,13 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.4.4 - 26/05/2021
+	------------------
+	Bug fixes:
+	- fix const correctness when using zpr::fwd()
+
+
 
 	2.4.3 - 25/05/2021
 	------------------
