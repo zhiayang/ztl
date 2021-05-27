@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.4.4
+	Version 2.4.5
 	=============
 
 
@@ -1480,7 +1480,7 @@ namespace zpr
 		template <size_t Limit, bool Newline>
 		struct file_appender
 		{
-			file_appender(FILE* fd, size_t& written) : fd(fd), written(written) { }
+			file_appender(FILE* fd, size_t& written) : fd(fd), written(written) { buf[0] = '\n'; }
 			~file_appender() { flush(true); }
 
 			file_appender(file_appender&&) = delete;
@@ -1661,10 +1661,13 @@ namespace zpr
 	template <typename CallbackFn, typename... Args>
 	size_t cprint(CallbackFn&& callback, tt::str_view fmt, Args&&... args)
 	{
-		auto appender = detail::callback_appender(&callback, /* newline: */ false);
-		detail::print(appender, fmt, static_cast<Args&&>(args)...);
-
-		return appender.size();
+		size_t n = 0;
+		{
+			auto appender = detail::callback_appender(&callback, /* newline: */ false);
+			detail::print(appender, fmt, static_cast<Args&&>(args)...);
+			n = appender.size();
+		}
+		return n;
 	}
 
 	/*
@@ -1683,10 +1686,13 @@ namespace zpr
 	template <typename CallbackFn, typename... Args>
 	size_t cprintln(CallbackFn&& callback, tt::str_view fmt, Args&&... args)
 	{
-		auto appender = detail::callback_appender(&callback, /* newline: */ true);
-		detail::print(appender, fmt, static_cast<Args&&>(args)...);
-
-		return appender.size();
+		size_t n = 0;
+		{
+			auto appender = detail::callback_appender(&callback, /* newline: */ true);
+			detail::print(appender, fmt, static_cast<Args&&>(args)...);
+			n = appender.size();
+		}
+		return n;
 	}
 
 	/*
@@ -1705,10 +1711,13 @@ namespace zpr
 	template <typename... Args>
 	size_t sprint(size_t len, char* buf, tt::str_view fmt, Args&&... args)
 	{
-		auto appender = detail::buffer_appender(buf, len);
-		detail::print(appender, fmt, static_cast<Args&&>(args)...);
-
-		return appender.size();
+		size_t n = 0;
+		{
+			auto appender = detail::buffer_appender(buf, len);
+			detail::print(appender, fmt, static_cast<Args&&>(args)...);
+			n = appender.size();
+		}
+		return n;
 	}
 
 	/*
@@ -1755,9 +1764,10 @@ namespace zpr
 	size_t print(tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret);
-		detail::print(appender, fmt, static_cast<Args&&>(args)...);
-
+		{
+			auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(stdout, ret);
+			detail::print(appender, fmt, static_cast<Args&&>(args)...);
+		}
 		return ret;
 	}
 
@@ -1774,9 +1784,10 @@ namespace zpr
 	size_t println(tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret);
-		detail::print(appender, fmt, static_cast<Args&&>(args)...);
-
+		{
+			auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(stdout, ret);
+			detail::print(appender, fmt, static_cast<Args&&>(args)...);
+		}
 		return ret;
 	}
 
@@ -1794,9 +1805,10 @@ namespace zpr
 	size_t fprint(FILE* file, tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret);
-		detail::print(appender, fmt, static_cast<Args&&>(args)...);
-
+		{
+			auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, false>(file, ret);
+			detail::print(appender, fmt, static_cast<Args&&>(args)...);
+		}
 		return ret;
 	}
 
@@ -1814,9 +1826,10 @@ namespace zpr
 	size_t fprintln(FILE* file, tt::str_view fmt, Args&&... args)
 	{
 		size_t ret = 0;
-		auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret);
-		detail::print(appender, fmt, static_cast<Args&&>(args)...);
-
+		{
+			auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, true>(file, ret);
+			detail::print(appender, fmt, static_cast<Args&&>(args)...);
+		}
 		return ret;
 	}
 #endif
@@ -2251,9 +2264,10 @@ namespace zpr
 	std::string sprint(tt::str_view fmt, Args&&... args)
 	{
 		std::string buf;
-		auto appender = detail::string_appender(buf);
-		detail::print(appender, fmt, static_cast<Args&&>(args)...);
-
+		{
+			auto appender = detail::string_appender(buf);
+			detail::print(appender, fmt, static_cast<Args&&>(args)...);
+		}
 		return buf;
 	}
 
@@ -2278,6 +2292,14 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.4.5 - 27/05/2021
+	------------------
+	Bug fixes:
+	- fix a regression in file_appender introduced in 2.2.1, where empty println("")s were
+	  printing garbage
+
+
 
 	2.4.4 - 26/05/2021
 	------------------
