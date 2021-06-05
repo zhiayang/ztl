@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 1.0.0
+	Version 1.2.0
 	=============
 
 
@@ -36,14 +36,26 @@
 
 	- ZST_FREESTANDING
 		this is *FALSE by default; controls whether or not a standard library implementation is
-		available. if not, then memset(), memmove(), strlen(), and strncmp() are forward declared according to the
-		C library specifications, but not defined.
+		available. if not, then memset(), memmove(), memcmp(), strlen(), and strncmp() are forward declared
+		according to the C library specifications, but not defined.
 
 	Note that ZST_FREESTANDING implies ZST_USE_STD = 0.
 
 
 	Version History
 	===============
+
+	1.2.0 - 05/06/2021
+	------------------
+	Add `starts_with` and `ends_with` for str_view
+
+
+
+	1.1.0 - 28/05/2021
+	------------------
+	Various changes...
+
+
 
 	1.0.0 - 24/05/2021
 	------------------
@@ -76,6 +88,7 @@
 	#define ZST_USE_STD 0
 
 	extern "C" void* memset(void* s, int c, size_t n);
+	extern "C" int memcmp(const void* s1, const void* s2, size_t n);
 	extern "C" void* memmove(void* dest, const void* src, size_t n);
 
 	extern "C" size_t strlen(const char* s);
@@ -145,137 +158,216 @@ namespace zst
 
 namespace zst
 {
-	struct str_view
+	namespace impl
 	{
-		using value_type = char;
-
-		str_view() : ptr(nullptr), len(0) { }
-		str_view(const char* p, size_t l) : ptr(p), len(l) { }
-
-		template <size_t N>
-		str_view(const char (&s)[N]) : ptr(s), len(N - 1) { }
-
-		template <typename T, typename = typename detail::enable_if<detail::is_same<const char*, T>::value>::type>
-		str_view(T s) : ptr(s), len(strlen(s)) { }
-
-		str_view(str_view&&) = default;
-		str_view(const str_view&) = default;
-		str_view& operator= (str_view&&) = default;
-		str_view& operator= (const str_view&) = default;
-
-		inline bool operator== (const str_view& other) const
+		template <typename CharType>
+		struct str_view
 		{
-			return (this->len == other.len) &&
-				(this->ptr == other.ptr || (strncmp(this->ptr, other.ptr, detail::min(this->len, other.len)) == 0)
-			);
-		}
+			using value_type = CharType;
 
-		inline bool operator!= (const str_view& other) const
-		{
-			return !(*this == other);
-		}
+			str_view() : ptr(nullptr), len(0) { }
+			str_view(const value_type* p, size_t l) : ptr(p), len(l) { }
 
-		inline const char* begin() const { return this->ptr; }
-		inline const char* end() const { return this->ptr + len; }
+			template <size_t N>
+			str_view(const value_type (&s)[N]) : ptr(s), len(N - 1) { }
 
-		inline size_t length() const { return this->len; }
-		inline size_t size() const { return this->len; }
-		inline bool empty() const { return this->len == 0; }
-		inline const char* data() const { return this->ptr; }
+			template <typename T, typename = typename detail::enable_if<
+				detail::is_same<char, value_type>::value &&
+				detail::is_same<const char*, T>::value
+			>::type>
+			str_view(T s) : ptr(s), len(strlen(s)) { }
 
-		char front() const { return this->ptr[0]; }
-		char back() const { return this->ptr[this->len - 1]; }
+			str_view(str_view&&) = default;
+			str_view(const str_view&) = default;
+			str_view& operator= (str_view&&) = default;
+			str_view& operator= (const str_view&) = default;
 
-		inline void clear() { this->ptr = 0; this->len = 0; }
-
-		inline char operator[] (size_t n) { return this->ptr[n]; }
-
-		inline size_t find(char c) const { return this->find(str_view(&c, 1)); }
-		inline size_t find(str_view sv) const
-		{
-			if(sv.size() > this->size())
-				return -1;
-
-			else if(sv.empty())
-				return 0;
-
-			for(size_t i = 0; i < 1 + this->size() - sv.size(); i++)
+			inline bool operator== (const str_view& other) const
 			{
-				if(this->drop(i).take(sv.size()) == sv)
-					return i;
+				return (this->len == other.len) &&
+					(this->ptr == other.ptr || (memcmp(this->ptr, other.ptr, detail::min(this->len, other.len)) == 0)
+				);
 			}
 
-			return -1;
-		}
-
-		inline size_t rfind(char c) const { return this->rfind(str_view(&c, 1)); }
-		inline size_t rfind(str_view sv) const
-		{
-			if(sv.size() > this->size())
-				return -1;
-
-			else if(sv.empty())
-				return this->size() - 1;
-
-			for(size_t i = 1 + this->size() - sv.size(); i-- > 0;)
+			inline bool operator!= (const str_view& other) const
 			{
-				if(this->take(1 + i).take_last(sv.size()) == sv)
-					return i;
+				return !(*this == other);
 			}
 
-			return -1;
-		}
+			inline const value_type* begin() const { return this->ptr; }
+			inline const value_type* end() const { return this->ptr + len; }
 
-		inline size_t find_first_of(str_view sv)
-		{
-			for(size_t i = 0; i < this->len; i++)
+			inline size_t length() const { return this->len; }
+			inline size_t size() const { return this->len; }
+			inline bool empty() const { return this->len == 0; }
+			inline const value_type* data() const { return this->ptr; }
+
+			inline const uint8_t* bytes() const { return reinterpret_cast<const uint8_t*>(this->ptr); }
+
+			value_type front() const { return this->ptr[0]; }
+			value_type back() const { return this->ptr[this->len - 1]; }
+
+			inline void clear() { this->ptr = 0; this->len = 0; }
+
+			inline value_type operator[] (size_t n) { return this->ptr[n]; }
+
+			inline size_t find(value_type c) const { return this->find(str_view(&c, 1)); }
+			inline size_t find(str_view sv) const
 			{
-				for(char k : sv)
+				if(sv.size() > this->size())
+					return -1;
+
+				else if(sv.empty())
+					return 0;
+
+				for(size_t i = 0; i < 1 + this->size() - sv.size(); i++)
 				{
-					if(this->ptr[i] == k)
+					if(this->drop(i).take(sv.size()) == sv)
 						return i;
 				}
+
+				return -1;
 			}
 
-			return -1;
-		}
+			inline size_t rfind(value_type c) const { return this->rfind(str_view(&c, 1)); }
+			inline size_t rfind(str_view sv) const
+			{
+				if(sv.size() > this->size())
+					return -1;
 
-		inline str_view drop(size_t n) const { return (this->size() >= n ? this->substr(n, this->size() - n) : ""); }
-		inline str_view take(size_t n) const { return (this->size() >= n ? this->substr(0, n) : *this); }
-		inline str_view take_last(size_t n) const { return (this->size() >= n ? this->substr(this->size() - n, n) : *this); }
-		inline str_view drop_last(size_t n) const { return (this->size() >= n ? this->substr(0, this->size() - n) : *this); }
+				else if(sv.empty())
+					return this->size() - 1;
 
-		inline str_view substr(size_t pos = 0, size_t cnt = -1) const
-		{
-			return str_view(this->ptr + pos, cnt == static_cast<size_t>(-1)
-				? (this->len > pos ? this->len - pos : 0)
-				: cnt);
-		}
+				for(size_t i = 1 + this->size() - sv.size(); i-- > 0;)
+				{
+					if(this->take(1 + i).take_last(sv.size()) == sv)
+						return i;
+				}
 
-		inline str_view& remove_prefix(size_t n) { return (*this = this->drop(n)); }
-		inline str_view& remove_suffix(size_t n) { return (*this = this->drop_last(n)); }
+				return -1;
+			}
 
-	#if ZST_USE_STD
-		str_view(const std::string& str) : ptr(str.data()), len(str.size()) { }
-		str_view(const std::string_view& sv) : ptr(sv.data()), len(sv.size()) { }
+			inline size_t find_first_of(str_view sv)
+			{
+				for(size_t i = 0; i < this->len; i++)
+				{
+					for(value_type k : sv)
+					{
+						if(this->ptr[i] == k)
+							return i;
+					}
+				}
 
-		inline std::string_view sv() const  { return std::string_view(this->data(), this->size()); }
-		inline std::string str() const      { return std::string(this->data(), this->size()); }
-	#endif // ZST_USE_STD
+				return -1;
+			}
 
-	private:
-		const char* ptr;
-		size_t len;
-	};
+			[[nodiscard]] inline str_view drop(size_t n) const
+			{ return (this->size() >= n ? this->substr(n, this->size() - n) : str_view { }); }
 
-	#if ZST_USE_STD
-		inline bool operator== (const std::string& other, str_view sv) { return sv == str_view(other); }
-		inline bool operator!= (std::string_view other, str_view sv) { return sv != str_view(other); }
-	#endif // ZST_USE_STD
+			[[nodiscard]] inline str_view take(size_t n) const
+			{ return (this->size() >= n ? this->substr(0, n) : *this); }
+
+			[[nodiscard]] inline str_view take_last(size_t n) const
+			{ return (this->size() >= n ? this->substr(this->size() - n, n) : *this); }
+
+			[[nodiscard]] inline str_view drop_last(size_t n) const
+			{ return (this->size() >= n ? this->substr(0, this->size() - n) : *this); }
+
+			[[nodiscard]] inline str_view substr(size_t pos = 0, size_t cnt = -1) const
+			{
+				return str_view(this->ptr + pos, cnt == static_cast<size_t>(-1)
+					? (this->len > pos ? this->len - pos : 0)
+					: cnt);
+			}
+
+			inline bool starts_with(str_view sv) const { return this->take(sv.size()) == sv; }
+			inline bool ends_with(str_view sv) const   { return this->take_last(sv.size()) == sv; }
+
+			inline bool starts_with(value_type c) const { return this->size() > 0 && this->take(1)[0] == c; }
+			inline bool ends_with(value_type c) const { return this->size() > 0 && this->take_last(1)[0] == c; }
+
+			inline str_view& remove_prefix(size_t n) { return (*this = this->drop(n)); }
+			inline str_view& remove_suffix(size_t n) { return (*this = this->drop_last(n)); }
+
+			[[nodiscard]] inline str_view take_prefix(size_t n)
+			{
+				auto ret = this->take(n);
+				this->remove_prefix(n);
+				return ret;
+			}
+
+			[[nodiscard]] inline str_view take_suffix(size_t n)
+			{
+				auto ret = this->take_last(n);
+				this->remove_suffix(n);
+				return ret;
+			}
+
+			// these function is... potentially unsafe.
+			inline str_view& transfer_prefix(str_view& other, size_t n)
+			{
+				if(&other == this)
+					return *this;
+
+				if(other.ptr == nullptr)
+					other.ptr = this->ptr;
+				else
+					assert(other.ptr + other.len == this->ptr);
+
+				n = detail::min(n, this->len);
+				other.len += n;
+
+				return this->remove_prefix(n);
+			}
 
 
-	inline const char* begin(const str_view& sv) { return sv.begin(); }
-	inline const char* end(const str_view& sv) { return sv.end(); }
+		#if ZST_USE_STD
+			str_view(const std::basic_string<value_type>& str) : ptr(str.data()), len(str.size()) { }
+			str_view(const std::basic_string_view<value_type>& sv) : ptr(sv.data()), len(sv.size()) { }
+
+			inline std::basic_string_view<value_type> sv() const
+			{
+				return std::basic_string_view<value_type>(this->data(), this->size());
+			}
+
+			inline std::basic_string<value_type> str() const
+			{
+				return std::basic_string<value_type>(this->data(), this->size());
+			}
+		#endif // ZST_USE_STD
+
+
+			// this must appear inside the class body... see the comment below about these leaky macros.
+		#if defined(ZPR_USE_STD) || defined(ZPR_FREESTANDING)
+
+			template <typename T = value_type, typename = typename detail::enable_if<detail::is_same<T, char>::value>::type>
+			operator zpr::tt::str_view() const
+			{
+				return zpr::tt::str_view(this->ptr, this->len);
+			}
+
+		#endif
+
+
+		private:
+			const value_type* ptr;
+			size_t len;
+		};
+
+		#if ZST_USE_STD
+			template <typename C>
+			inline bool operator== (const std::basic_string<C>& other, str_view<C> sv) { return sv == str_view<C>(other); }
+
+			template <typename C>
+			inline bool operator!= (std::basic_string_view<C> other, str_view<C> sv) { return sv != str_view<C>(other); }
+		#endif // ZST_USE_STD
+
+		template <typename C> inline const C* begin(const str_view<C>& sv) { return sv.begin(); }
+		template <typename C> inline const C* end(const str_view<C>& sv) { return sv.end(); }
+	}
+
+	using str_view = impl::str_view<char>;
+	using wstr_view = impl::str_view<char32_t>;
 }
 
 
@@ -593,6 +685,15 @@ namespace zst
 // so we can be sure that if they are defined, then zpr.h is included.
 
 #if defined(ZPR_USE_STD) || defined(ZPR_FREESTANDING)
+
+namespace zst
+{
+	template <typename... Args>
+	Err<std::string> ErrFmt(const char* fmt, Args&&... args)
+	{
+		return Err<std::string>(zpr::sprint(fmt, static_cast<Args&&>(args)...));
+	}
+}
 
 namespace zpr
 {
