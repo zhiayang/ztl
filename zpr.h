@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.4.5
+	Version 2.4.6
 	=============
 
 
@@ -1189,10 +1189,13 @@ namespace zpr
 				memcpy(dst, src, 2);
 			};
 
-			while(value >= 0x100)
+			if constexpr (sizeof(T) > 1)
 			{
-				copy((ptr -= 2), &lookup_table[(value & 0xFF) * 2]);
-				value /= 0x100;
+				while(value >= 0x100)
+				{
+					copy((ptr -= 2), &lookup_table[(value & 0xFF) * 2]);
+					value /= static_cast<T>(0x100);
+				}
 			}
 
 			if(value < 0x10)
@@ -2292,6 +2295,12 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.4.6 - 04/07/2021
+	------------------
+	Bug fixes:
+	- fix a warning on MSVC when printing unsigned char as hex
+
 
 	2.4.5 - 27/05/2021
 	------------------
