@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 1.2.0
+	Version 1.2.1
 	=============
 
 
@@ -44,6 +44,12 @@
 
 	Version History
 	===============
+
+	1.2.1 - 03/08/2021
+	------------------
+	Make str_view::operator[] const
+
+
 
 	1.2.0 - 05/06/2021
 	------------------
@@ -209,7 +215,7 @@ namespace zst
 
 			inline void clear() { this->ptr = 0; this->len = 0; }
 
-			inline value_type operator[] (size_t n) { return this->ptr[n]; }
+			inline value_type operator[] (size_t n) const { return this->ptr[n]; }
 
 			inline size_t find(value_type c) const { return this->find(str_view(&c, 1)); }
 			inline size_t find(str_view sv) const
