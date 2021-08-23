@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 1.3.1
+	Version 1.3.2
 	=============
 
 
@@ -53,48 +53,7 @@
 	This may change in the future.
 
 
-
-
-
-	Version History
-	===============
-
-	1.3.1 - 08/08/2021
-	------------------
-	Fix a bug in buffer<T>::append_bytes being SFINAE-ed wrongly
-
-
-
-	1.3.0 - 03/08/2021
-	------------------
-	Add buffer<T>, which is essentially a lightweight std::vector. requires operator new[];
-
-	Add chars() for str_view where T = uint8_t, which returns a normal str_view
-	Add span<T> (== str_view<T>) and byte_span (== str_view<uint8_t>)
-
-
-
-	1.2.1 - 03/08/2021
-	------------------
-	Make str_view::operator[] const
-
-
-
-	1.2.0 - 05/06/2021
-	------------------
-	Add `starts_with` and `ends_with` for str_view
-
-
-
-	1.1.0 - 28/05/2021
-	------------------
-	Various changes...
-
-
-
-	1.0.0 - 24/05/2021
-	------------------
-	Initial Release
+	Version history is at the bottom of the file.
 */
 
 #pragma once
@@ -148,7 +107,12 @@
 
 
 // forward declare the zpr namespace...
-namespace zpr { }
+namespace zpr
+{
+	// as well as the print_formatter.
+	template <typename, typename>
+	struct print_formatter;
+}
 
 namespace zst
 {
@@ -983,3 +947,53 @@ namespace zpr
 	};
 }
 #endif
+
+
+
+/*
+	Version History
+	===============
+
+	1.3.2 - 23/08/2021
+	------------------
+	Fix forward declaration of zpr::print_formatter.
+
+
+
+	1.3.1 - 08/08/2021
+	------------------
+	Fix a bug in buffer<T>::append_bytes being SFINAE-ed wrongly
+
+
+
+	1.3.0 - 03/08/2021
+	------------------
+	Add buffer<T>, which is essentially a lightweight std::vector. requires operator new[];
+
+	Add chars() for str_view where T = uint8_t, which returns a normal str_view
+	Add span<T> (== str_view<T>) and byte_span (== str_view<uint8_t>)
+
+
+
+	1.2.1 - 03/08/2021
+	------------------
+	Make str_view::operator[] const
+
+
+
+	1.2.0 - 05/06/2021
+	------------------
+	Add `starts_with` and `ends_with` for str_view
+
+
+
+	1.1.0 - 28/05/2021
+	------------------
+	Various changes...
+
+
+
+	1.0.0 - 24/05/2021
+	------------------
+	Initial Release
+*/
