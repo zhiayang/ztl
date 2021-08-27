@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.5.0
+	Version 2.5.1
 	=============
 
 
@@ -668,7 +668,9 @@ namespace zpr
 			}
 
 			tt::str_view fmt;
-			const void* values[sizeof...(Args)] { };
+
+			// msvc doesn't like a 0-sized array here
+			const void* values[sizeof...(Args) == 0 ? 1 : sizeof...(Args)] { };
 		};
 
 		struct dummy_appender
@@ -784,16 +786,22 @@ namespace zpr
 			if(args.have_precision())   string_length = tt::min(args.precision, static_cast<int64_t>(len));
 			else                        string_length = static_cast<int64_t>(len);
 
-			size_t ret = string_length;
+			size_t ret = static_cast<size_t>(string_length);
 			auto padding_width = args.width - string_length;
 
 			if(args.positive_width() && padding_width > 0)
-				cb(args.zero_pad() ? '0' : ' ', padding_width), ret += padding_width;
+			{
+				cb(args.zero_pad() ? '0' : ' ', static_cast<size_t>(padding_width));
+				ret += static_cast<size_t>(padding_width);
+			}
 
-			cb(str, string_length);
+			cb(str, static_cast<size_t>(string_length));
 
 			if(args.negative_width() && padding_width > 0)
-				cb(args.zero_pad() ? '0' : ' ', padding_width), ret += padding_width;
+			{
+				cb(args.zero_pad() ? '0' : ' ', static_cast<size_t>(padding_width));
+				ret += static_cast<size_t>(padding_width);
+			}
 
 			return ret;
 		}
@@ -2051,20 +2059,20 @@ namespace zpr
 				if(precpad_width <= 0) { use_precision = false; }
 
 				// pre-prefix
-				if(use_left_pad) cb(' ', padding_width);
+				if(use_left_pad) cb(' ', static_cast<size_t>(padding_width));
 
-				cb(prefix, prefix_len);
+				cb(prefix, static_cast<size_t>(prefix_len));
 
 				// post-prefix
-				if(use_zero_pad) cb('0', zeropad_width);
+				if(use_zero_pad) cb('0', static_cast<size_t>(zeropad_width));
 
 				// prec-string
-				if(use_precision) cb('0', precpad_width);
+				if(use_precision) cb('0', static_cast<size_t>(precpad_width));
 
-				cb(digits, digits_len);
+				cb(digits, static_cast<size_t>(digits_len));
 
 				// postfix
-				if(use_right_pad) cb(' ', padding_width);
+				if(use_right_pad) cb(' ', static_cast<size_t>(padding_width));
 			}
 		};
 	}
@@ -2331,6 +2339,12 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.5.1 - 27/08/2021
+	------------------
+	Fix implicit integer casting warnings
+
+
 
 	2.5.0 - 07/08/2021
 	------------------
