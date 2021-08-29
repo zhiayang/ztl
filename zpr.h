@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.5.1
+	Version 2.5.2
 	=============
 
 
@@ -670,6 +670,7 @@ namespace zpr
 			tt::str_view fmt;
 
 			// msvc doesn't like a 0-sized array here
+			const size_t num_values = sizeof...(Args);
 			const void* values[sizeof...(Args) == 0 ? 1 : sizeof...(Args)] { };
 		};
 
@@ -1380,8 +1381,15 @@ namespace zpr
 
 					if constexpr (TypeErased)
 					{
-						print_one(cb, static_cast<format_args&&>(fmt_spec),
-							*reinterpret_cast<const typename tt::remove_reference<T>::type*>(value));
+						if(value == nullptr)
+						{
+							// don't do anything.
+						}
+						else
+						{
+							print_one(cb, static_cast<format_args&&>(fmt_spec),
+								*reinterpret_cast<const typename tt::remove_reference<T>::type*>(value));
+						}
 					}
 					else
 					{
@@ -1440,7 +1448,7 @@ namespace zpr
 
 
 		template <typename CallbackFn, typename... Args>
-		void print_erased(CallbackFn& cb, tt::str_view sv, const void* args[])
+		void print_erased(CallbackFn& cb, tt::str_view sv, const void* const* args, size_t num_args)
 		{
 			__print_state_t st;
 			st.len = sv.size();
@@ -1449,7 +1457,7 @@ namespace zpr
 			st.end = sv.data();
 
 			size_t idx = 0;
-			(skip_fmts<CallbackFn, Args&&, true>(&st, cb, args[idx++]), ...);
+			(skip_fmts<CallbackFn, Args&&, true>(&st, cb, idx < num_args ? args[idx++] : nullptr), ...);
 
 			// flush
 			cb(st.beg, st.len - (st.beg - st.fmt));
@@ -1942,7 +1950,7 @@ namespace zpr
 		void print(F&& fwd, Cb&& cb, format_args args)
 		{
 			(void) args;
-			detail::print_erased<Cb, Args&&...>(static_cast<Cb&&>(cb), static_cast<tt::str_view&&>(fwd.fmt), fwd.values);
+			detail::print_erased<Cb, Args&&...>(static_cast<Cb&&>(cb), fwd.fmt, &fwd.values[0], fwd.num_values);
 		}
 	};
 
@@ -2339,6 +2347,12 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.5.2 - 30/08/2021
+	------------------
+	Improve safety of zpr::fwd calls by adding range checking to the type-erased value array.
+
+
 
 	2.5.1 - 27/08/2021
 	------------------
