@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.5.2
+	Version 2.5.3
 	=============
 
 
@@ -469,6 +469,8 @@ namespace zpr::tt
 
 	struct str_view
 	{
+		using value_type = char;
+
 		str_view() : ptr(nullptr), len(0) { }
 		str_view(const char* p, size_t l) : ptr(p), len(l) { }
 
@@ -478,13 +480,6 @@ namespace zpr::tt
 		template <typename T, typename = tt::enable_if_t<tt::is_same_v<const char*, T>>>
 		str_view(T s) : ptr(s), len(strlen(s)) { }
 
-	#if ZPR_USE_STD
-
-		str_view(const std::string& str) : ptr(str.data()), len(str.size()) { }
-		str_view(const std::string_view& sv) : ptr(sv.data()), len(sv.size()) { }
-
-	#endif
-
 		str_view(str_view&&) = default;
 		str_view(const str_view&) = default;
 		str_view& operator= (str_view&&) = default;
@@ -493,7 +488,7 @@ namespace zpr::tt
 		inline bool operator== (const str_view& other) const
 		{
 			return (this->ptr == other.ptr && this->len == other.len)
-				|| (strncmp(this->ptr, other.ptr, tt::min(this->len, other.len)) == 0);
+				|| (this->len == other.len && strncmp(this->ptr, other.ptr, this->len) == 0);
 		}
 
 		inline bool operator!= (const str_view& other) const
@@ -518,9 +513,44 @@ namespace zpr::tt
 		inline str_view& remove_prefix(size_t n) { return (*this = this->drop(n)); }
 		inline str_view& remove_suffix(size_t n) { return (*this = this->drop_last(n)); }
 
-	private:
+		[[nodiscard]] inline str_view take_prefix(size_t n)
+		{
+			auto ret = this->take(n);
+			this->remove_prefix(n);
+			return ret;
+		}
+
+		inline size_t find(char c) const { return this->find(str_view(&c, 1)); }
+		inline size_t find(str_view sv) const
+		{
+			if(sv.size() > this->size())
+				return -1;
+
+			else if(sv.empty())
+				return 0;
+
+			for(size_t i = 0; i < 1 + this->size() - sv.size(); i++)
+			{
+				if(this->drop(i).take(sv.size()) == sv)
+					return i;
+			}
+
+			return -1;
+		}
+
 		inline str_view substr(size_t pos, size_t cnt) const { return str_view(this->ptr + pos, cnt); }
 
+
+	#if ZPR_USE_STD
+
+		str_view(const std::string& str) : ptr(str.data()), len(str.size()) { }
+		str_view(const std::string_view& sv) : ptr(sv.data()), len(sv.size()) { }
+
+		[[nodiscard]] inline std::string str() const { return std::string(this->ptr, this->len); }
+	#endif
+
+
+	private:
 		const char* ptr;
 		size_t len;
 	};
@@ -700,9 +730,12 @@ namespace zpr
 
 		template <typename T>
 		struct is_iterable<T, tt::void_t<
-			decltype(begin(tt::declval<T&>())),
-			decltype(end(tt::declval<T&>()))
+			decltype(begin(tt::declval<T&>())), decltype(end(tt::declval<T&>()))
 		>> : tt::true_type { };
+
+		// a bit hacky, but force this to be iterable.
+		template <>
+		struct is_iterable<tt::str_view> : tt::true_type { };
 
 		static inline format_args parse_fmt_spec(tt::str_view sv)
 		{
@@ -2347,6 +2380,12 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.5.3 - 15/09/2021
+	------------------
+	Add additional methods to `tt::str_view`, and fix broken operator== on it
+
+
 
 	2.5.2 - 30/08/2021
 	------------------
