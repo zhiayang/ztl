@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.5.5
+	Version 2.5.6
 	=============
 
 
@@ -352,11 +352,11 @@ namespace zpr::tt
 
 	template <typename _Type> struct is_array : false_type { };
 	template <typename _Type> struct is_array<_Type[]> : true_type { };
-	template <typename _Type, size_t _N> struct is_array<_Type[_N]> : true_type { };
+	template <typename _Type, size_t _Number> struct is_array<_Type[_Number]> : true_type { };
 
 	template <typename _Type> struct remove_extent { using type = _Type; };
 	template <typename _Type> struct remove_extent<_Type[]> { using type = _Type; };
-	template <typename _Type, size_t _N> struct remove_extent<_Type[_N]> { using type = _Type; };
+	template <typename _Type, size_t _Number> struct remove_extent<_Type[_Number]> { using type = _Type; };
 
 	template <typename _Type> struct is_function : integral_constant<bool, !is_const_v<const _Type> && !is_reference_v<_Type>> { };
 	template <typename _Type> constexpr auto is_function_v = is_function<_Type>::value;
@@ -367,19 +367,19 @@ namespace zpr::tt
 	template <typename _Type>
 	struct add_pointer : decltype(try_add_pointer<_Type>(0)) { };
 
-	template <bool _BType, typename _Type, typename _F> struct conditional { using type = _Type; };
-	template <typename _Type, typename _F> struct conditional<false, _Type, _F> { using type = _F; };
-	template <bool _BType, typename _Type, typename _F> using conditional_t = typename conditional<_BType,_Type,_F>::type;
+	template <bool _BType, typename _Type, typename _Func> struct conditional { using type = _Type; };
+	template <typename _Type, typename _Func> struct conditional<false, _Type, _Func> { using type = _Func; };
+	template <bool _BType, typename _Type, typename _Func> using conditional_t = typename conditional<_BType,_Type,_Func>::type;
 
 	template <typename...> struct conjunction : true_type { };
-	template <typename _B1> struct conjunction<_B1> : _B1 { };
-	template <typename _B1, typename... _Bn>
-	struct conjunction<_B1, _Bn...> : conditional_t<bool(_B1::value), conjunction<_Bn...>, _B1> { };
+	template <typename _Type1> struct conjunction<_Type1> : _Type1 { };
+	template <typename _Type1, typename... _Types>
+	struct conjunction<_Type1, _Types...> : conditional_t<bool(_Type1::value), conjunction<_Types...>, _Type1> { };
 
 	template <typename...> struct disjunction : false_type { };
-	template <typename _B1> struct disjunction<_B1> : _B1 { };
-	template <typename _B1, typename... _Bn>
-	struct disjunction<_B1, _Bn...> : conditional_t<bool(_B1::value), _B1, disjunction<_Bn...>>  { };
+	template <typename _Type1> struct disjunction<_Type1> : _Type1 { };
+	template <typename _Type1, typename... _Types>
+	struct disjunction<_Type1, _Types...> : conditional_t<bool(_Type1::value), _Type1, disjunction<_Types...>>  { };
 
 	template <typename _BType>
 	struct negation : integral_constant<bool, !bool(_BType::value)> { };
@@ -489,8 +489,8 @@ namespace zpr::tt
 		str_view() : ptr(nullptr), len(0) { }
 		str_view(const char* p, size_t l) : ptr(p), len(l) { }
 
-		template <size_t _N>
-		str_view(const char (&s)[_N]) : ptr(s), len(_N - 1) { }
+		template <size_t _Number>
+		str_view(const char (&s)[_Number]) : ptr(s), len(_Number - 1) { }
 
 		template <typename _Type, typename = tt::enable_if_t<tt::is_same_v<const char*, _Type>>>
 		str_view(_Type s) : ptr(s), len(strlen(s)) { }
@@ -2185,13 +2185,13 @@ namespace zpr
 		}
 	};
 
-	template <size_t _N>
-	struct print_formatter<const char (&)[_N]>
+	template <size_t _Number>
+	struct print_formatter<const char (&)[_Number]>
 	{
 		template <typename _Cb>
-		void print(const char (&x)[_N], _Cb&& cb, format_args args)
+		void print(const char (&x)[_Number], _Cb&& cb, format_args args)
 		{
-			detail::print_string(static_cast<_Cb&&>(cb), x, _N - 1, static_cast<format_args&&>(args));
+			detail::print_string(static_cast<_Cb&&>(cb), x, _Number - 1, static_cast<format_args&&>(args));
 		}
 	};
 
@@ -2303,13 +2303,13 @@ namespace zpr
 		}
 	};
 
-	template <typename _Type, size_t _N>
-	struct print_formatter<_Type (&)[_N]>
+	template <typename _Type, size_t _Number>
+	struct print_formatter<_Type (&)[_Number]>
 	{
 		template <typename _Cb>
-		void print(const _Type (&array)[_N], _Cb&& cb, format_args args)
+		void print(const _Type (&array)[_Number], _Cb&& cb, format_args args)
 		{
-			if(_N == 0)
+			if(_Number == 0)
 			{
 				if(!args.alternate())
 					cb("[ ]");
@@ -2319,10 +2319,10 @@ namespace zpr
 			if(!args.alternate())
 				cb("[");
 
-			for(size_t i = 0; i < _N; i++)
+			for(size_t i = 0; i < _Number; i++)
 			{
 				detail::print_one(static_cast<_Cb&&>(cb), args, array[i]);
-				if(i + 1 != _N)
+				if(i + 1 != _Number)
 				{
 					if(!args.alternate())
 						cb(", ");
@@ -2350,8 +2350,8 @@ namespace zpr
 	template <>
 	struct print_formatter<double> : print_formatter<float> { };
 
-	template <size_t _N>
-	struct print_formatter<char (&)[_N]> : print_formatter<const char (&)[_N]> { };
+	template <size_t _Number>
+	struct print_formatter<char (&)[_Number]> : print_formatter<const char (&)[_Number]> { };
 
 
 
@@ -2399,6 +2399,13 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.5.6 - 18/10/2021
+	------------------
+	Bug fixes:
+	- increase protection against macros with better naming
+
+
 
 	2.5.5 - 18/10/2021
 	------------------
