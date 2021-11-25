@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.5.6
+	Version 2.5.7
 	=============
 
 
@@ -612,7 +612,10 @@ namespace zpr
 			this->flags |= FMT_FLAG_HAVE_WIDTH;
 
 			if(w < 0)
+			{
+				this->width = -w;
 				this->flags |= FMT_FLAG_WIDTH_NEGATIVE;
+			}
 		}
 	};
 
@@ -2399,6 +2402,13 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.5.7 - 26/11/2021
+	------------------
+	Bug fixes:
+	- fix mishandling of negative widths (ie. left-align/right-pad) when using `zpr::w` or `zpr::wp`.
+
+
 
 	2.5.6 - 18/10/2021
 	------------------
