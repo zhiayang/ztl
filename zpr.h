@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.6.0
+	Version 2.7.0
 	=============
 
 
@@ -174,7 +174,27 @@
 	* print function; the purpose is to avoid an unnecessary round-trip through a std::string.
 	auto fwd(tt::str_view fmt, Args&&... args);
 
+	* instead of having to specialise a print_formatter<T>, use this to specify the formatter for a
+	* certain type using a lambda. The formatter given must return some sort of string-like object.
+	auto zpr::with(T value, auto&& formatter);
 
+
+	Type-erased API
+	---------------
+
+	Most of the formatting functions above are also available with a 'v' prefix, which is the type-erased
+	version. The aim of this is to reduce the number of variadic template instantiatons, limiting it to the
+	top-level entry-point (the `vprintX` function itself).
+
+	This slightly increases the runtime cost (since there is now an indirect call through a function pointer),
+	but now, there is one instantiation per callback type (`file_appender`, `buffer_appender`, etc.), and one
+	for each combination of (callback_type, value_type).
+
+	Of course, there will still be one template for each combination of argument types for the top-level function,
+	but that is unavoidable --- we try to keep those functions small so code-size-explosion is reduced.
+
+
+	----
 	Version history has been moved to the bottom of the file.
 */
 
@@ -1238,9 +1258,83 @@ namespace zpr
 			}
 		}
 
-		template <typename _CallbackFn, typename _Type, bool TypeErased = false>
-		ZPR_ALWAYS_INLINE void skip_fmts(__print_state_t* pst, _CallbackFn& cb, tt::conditional_t<TypeErased, const void*, _Type&&> value)
+		template <typename _PrintOne, typename _CallbackFn>
+		ZPR_ALWAYS_INLINE void skip_fmts_impl(__print_state_t* pst, _CallbackFn& cb, _PrintOne&& one_printer)
 		{
+			bool printed = false;
+			while(pst->end < pst->fmtend)
+			{
+				if(*pst->end == '{')
+				{
+					auto tmp = pst->end;
+
+					// flush whatever we have first:
+					cb(pst->beg, pst->end);
+					if(pst->end[1] == '{')
+					{
+						cb('{');
+						pst->end += 2;
+						pst->beg = pst->end;
+						continue;
+					}
+
+					while(pst->end[0] && pst->end[0] != '}')
+						pst->end++;
+
+					// owo
+					if(!pst->end[0])
+						return;
+
+					pst->end++;
+
+					printed = true;
+					auto fmt_spec = parse_fmt_spec(tt::str_view(tmp, pst->end - tmp));
+
+					one_printer(static_cast<format_args&&>(fmt_spec));
+
+					pst->beg = pst->end;
+					break;
+				}
+				else if(*pst->end == '}')
+				{
+					cb(pst->beg, pst->end + 1);
+
+					// well... we don't need to escape }, but for consistency, we accept either } or }} to print one }.
+					if(pst->end[1] == '}')
+						pst->end++;
+
+					pst->end++;
+					pst->beg = pst->end;
+				}
+				else
+				{
+					pst->end++;
+				}
+			}
+
+			if(not printed)
+				one_printer(format_args{});
+		}
+
+
+
+		template <typename _CallbackFn, typename _Type, bool TypeErased = false>
+		ZPR_ALWAYS_INLINE void skip_fmts(__print_state_t* pst, _CallbackFn& cb,
+			tt::conditional_t<TypeErased, const void*, _Type&&> value)
+		{
+			skip_fmts_impl(pst, cb, [&](format_args fmt_args) {
+				if constexpr (TypeErased)
+				{
+					if(value != nullptr)
+						print_one(cb, fmt_args, *reinterpret_cast<const typename tt::remove_reference<_Type>::type*>(value));
+				}
+				else
+				{
+					print_one(cb, fmt_args, static_cast<_Type&&>(value));
+				}
+			});
+
+		#if 0
 			bool printed = false;
 			while(pst->end < pst->fmtend)
 			{
@@ -1319,6 +1413,7 @@ namespace zpr
 					print_one(cb, format_args{}, static_cast<_Type&&>(value));
 				}
 			}
+		#endif
 		}
 
 
@@ -1415,9 +1510,6 @@ namespace zpr
 			has_resize_default_init<std::string>::resize_default_init(str, required_size);
 		}
 	#endif
-
-
-
 
 
 
@@ -1658,12 +1750,16 @@ namespace zpr
 
 			ZPR_ALWAYS_INLINE void operator() (const char* begin, const char* end)
 			{
-				(*this)(tt::str_view(begin, end - begin));
+				auto l = this->remaining(end - begin);
+				memmove(&this->buf[this->len], begin, l);
+				this->len += l;
 			}
 
 			ZPR_ALWAYS_INLINE void operator() (const char* begin, size_t len)
 			{
-				(*this)(tt::str_view(begin, len));
+				auto l = this->remaining(len);
+				memmove(&this->buf[this->len], begin, l);
+				this->len += l;
 			}
 
 			buffer_appender(buffer_appender&&) = delete;
@@ -2077,9 +2173,9 @@ namespace zpr
 
 
 
-
-
 	// formatters lie here.
+	// because we use explicit template args for the vprint stuff, it can only come after we
+	// specialise all the print_formatters for the builtin types.
 	template <typename _Type>
 	struct print_formatter<detail::__fmtarg_w<_Type>>
 	{
@@ -2535,13 +2631,190 @@ namespace zpr
 		}
 	};
 #endif
+
+
+
+
+	// vprint stuff
+	namespace detail
+	{
+		template <typename _CallbackFn>
+		struct type_erased_arg
+		{
+			const void* data;
+			void (*type_erased_printer)(const void*, _CallbackFn&, format_args);
+		};
+
+		template <typename _Type, typename _CallbackFn>
+		type_erased_arg<_CallbackFn> erase_argument(_CallbackFn& callback, _Type&& arg)
+		{
+			using DecayedT = tt::decay_t<_Type>;
+
+			type_erased_arg<_CallbackFn> erased {};
+			erased.data = &arg;
+			erased.type_erased_printer = [](const void* value, _CallbackFn& cb, format_args fa) {
+				print_formatter<DecayedT>().print(*reinterpret_cast<const DecayedT*>(value), cb, fa);
+			};
+
+			return erased;
+		}
+
+		template <typename _CallbackFn>
+		void vprint_impl(tt::str_view fmt, _CallbackFn& callback, const type_erased_arg<_CallbackFn>* args, size_t num_args)
+		{
+			__print_state_t st {};
+			st.beg = fmt.data();
+			st.end = fmt.data();
+			st.fmtend = fmt.end();
+
+			size_t i = 0;
+			auto thingy = [&](format_args fmt_args) {
+				args[i].type_erased_printer(args[i].data, callback, static_cast<format_args&&>(fmt_args));
+			};
+
+			for(; i < num_args; i++)
+				skip_fmts_impl(&st, callback, thingy);
+
+			// flush
+			callback(st.beg, st.fmtend - st.beg);
+		}
+	}
+
+	#define ERASE_ARGUMENT_LIST(name, num)                                          \
+		size_t num = 0;                                                             \
+		detail::type_erased_arg<decltype(appender)> name[sizeof...(_Types)] {};     \
+		do { ((name[num++] = detail::erase_argument(appender, args)), ...); } while(0)
+
+
+	template <typename _CallbackFn, typename... _Types>
+	size_t vcprint(_CallbackFn&& callback, tt::str_view fmt, _Types&&... args)
+	{
+		size_t n = 0;
+		{
+			auto appender = detail::callback_appender(&callback, /* newline: */ false);
+
+			ERASE_ARGUMENT_LIST(erased_args, num);
+			detail::vprint_impl(static_cast<tt::str_view&&>(fmt), appender, &erased_args[0], num);
+
+			n = appender.size();
+		}
+		return n;
+	}
+
+	template <typename _CallbackFn, typename... _Types>
+	size_t vcprintln(_CallbackFn&& callback, tt::str_view fmt, _Types&&... args)
+	{
+		size_t n = 0;
+		{
+			auto appender = detail::callback_appender(&callback, /* newline: */ true);
+			ERASE_ARGUMENT_LIST(erased_args, num);
+			detail::vprint_impl(static_cast<tt::str_view&&>(fmt), appender, &erased_args[0], num);
+
+			n = appender.size();
+		}
+		return n;
+	}
+
+	template <typename... _Types>
+	size_t vsprint(size_t len, char* buf, tt::str_view fmt, _Types&&... args)
+	{
+		size_t n = 0;
+		{
+			auto appender = detail::buffer_appender(buf, len);
+			ERASE_ARGUMENT_LIST(erased_args, num);
+			detail::vprint_impl(static_cast<tt::str_view&&>(fmt), appender, &erased_args[0], num);
+
+			n = appender.size();
+		}
+		return n;
+	}
+
+
+
+
+#if !ZPR_FREESTANDING
+	template <typename... _Types>
+	size_t vprint(tt::str_view fmt, _Types&&... args)
+	{
+		size_t ret = 0;
+		{
+			auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, /* newline: */ false>(stdout, ret);
+			ERASE_ARGUMENT_LIST(erased_args, num);
+			detail::vprint_impl(static_cast<tt::str_view&&>(fmt), appender, &erased_args[0], num);
+		}
+		return ret;
+	}
+
+	template <typename... _Types>
+	size_t vprintln(tt::str_view fmt, _Types&&... args)
+	{
+		size_t ret = 0;
+		{
+			auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, /* newline: */ true>(stdout, ret);
+			ERASE_ARGUMENT_LIST(erased_args, num);
+			detail::vprint_impl(static_cast<tt::str_view&&>(fmt), appender, &erased_args[0], num);
+		}
+		return ret;
+	}
+
+	template <typename... _Types>
+	size_t vfprint(FILE* file, tt::str_view fmt, _Types&&... args)
+	{
+		size_t ret = 0;
+		{
+			auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, /* newline: */ false>(file, ret);
+			ERASE_ARGUMENT_LIST(erased_args, num);
+			detail::vprint_impl(static_cast<tt::str_view&&>(fmt), appender, &erased_args[0], num);
+		}
+		return ret;
+	}
+
+	template <typename... _Types>
+	size_t vfprintln(FILE* file, tt::str_view fmt, _Types&&... args)
+	{
+		size_t ret = 0;
+		{
+			auto appender = detail::file_appender<detail::STDIO_BUFFER_SIZE, /* newline: */ true>(file, ret);
+			ERASE_ARGUMENT_LIST(erased_args, num);
+			detail::vprint_impl(static_cast<tt::str_view&&>(fmt), appender, &erased_args[0], num);
+		}
+		return ret;
+	}
+#endif
+
+#if ZPR_USE_STD
+	template <typename... _Types>
+	std::string vsprint(tt::str_view fmt, _Types&&... args)
+	{
+		std::string ret {};
+		{
+			auto appender = detail::string_appender(ret);
+			ERASE_ARGUMENT_LIST(erased_args, num);
+			detail::vprint_impl(static_cast<tt::str_view&&>(fmt), appender, &erased_args[0], num);
+		}
+		return ret;
+	}
+#endif
+
+	#undef ERASE_ARGUMENT_LIST
 }
+
+
+
+
 
 
 /*
 
 	Version History
 	===============
+
+	2.7.0 - 30/04/2022
+	------------------
+	- Add vprint API, which are functions prefixed with `v`. This API path tries to reduce the number of template
+		instantiations produced by type-erasing the arguments as far as possible in order to prevent code bloat.
+
+
 
 	2.6.0 - 29/04/2022
 	------------------
