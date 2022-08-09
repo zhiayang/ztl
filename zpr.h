@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.7.0
+	Version 2.7.1
 	=============
 
 
@@ -1516,11 +1516,15 @@ namespace zpr
 	#if ZPR_USE_STD
 		struct string_appender
 		{
-			string_appender(std::string& buf) : m_ptr(buf.data()), m_remaining(0), m_buf(buf) { }
+			string_appender(std::string& buf) : m_ptr(buf.data()), m_buf(buf) { }
+			~string_appender()
+			{
+				m_buf.resize(m_ptr - m_buf.data());
+			}
 
 			ZPR_ALWAYS_INLINE void operator() (char c)
 			{
-				if(ZPR_UNLIKELY(m_remaining < 1))
+				if(ZPR_UNLIKELY(get_remaining() < 1))
 					this->reserve(m_buf.size() + 1);
 
 				*m_ptr++ = c;
@@ -1528,7 +1532,7 @@ namespace zpr
 
 			ZPR_ALWAYS_INLINE void operator() (tt::str_view sv)
 			{
-				if(ZPR_UNLIKELY(m_remaining < sv.size()))
+				if(ZPR_UNLIKELY(get_remaining() < sv.size()))
 					this->reserve(m_buf.size() + sv.size());
 
 				memmove(m_ptr, sv.data(), sv.size());
@@ -1537,7 +1541,7 @@ namespace zpr
 
 			ZPR_ALWAYS_INLINE void operator() (char c, size_t n)
 			{
-				if(ZPR_UNLIKELY(m_remaining < n))
+				if(ZPR_UNLIKELY(get_remaining() < n))
 					this->reserve(m_buf.size() + n);
 
 				memset(m_ptr, c, n);
@@ -1547,7 +1551,7 @@ namespace zpr
 			ZPR_ALWAYS_INLINE void operator() (const char* begin, const char* end)
 			{
 				size_t n = end - begin;
-				if(ZPR_UNLIKELY(m_remaining < n))
+				if(ZPR_UNLIKELY(get_remaining() < n))
 					this->reserve(m_buf.size() + n);
 
 				memmove(m_ptr, begin, n);
@@ -1556,7 +1560,7 @@ namespace zpr
 
 			ZPR_ALWAYS_INLINE void operator() (const char* begin, size_t len)
 			{
-				if(ZPR_UNLIKELY(m_remaining < len))
+				if(ZPR_UNLIKELY(get_remaining() < len))
 					this->reserve(m_buf.size() + len);
 
 				memmove(m_ptr, begin, len);
@@ -1565,10 +1569,9 @@ namespace zpr
 
 			ZPR_ALWAYS_INLINE void reserve(size_t amount)
 			{
-				auto old_size = m_buf.size();
+				auto old_size = m_buf.size() - get_remaining();
 
 				resize_string_cheaply(m_buf, amount);
-				m_remaining = amount;
 				m_ptr = m_buf.data() + old_size;
 			}
 
@@ -1579,8 +1582,12 @@ namespace zpr
 
 		private:
 			char* m_ptr = 0;
-			size_t m_remaining;
 			std::string& m_buf;
+
+			ZPR_ALWAYS_INLINE size_t get_remaining()
+			{
+				return static_cast<size_t>(m_buf.data() + m_buf.size() - m_ptr);
+			}
 		};
 	#endif
 
@@ -2808,6 +2815,11 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.7.1 - 10/08/2022
+	------------------
+	- Fix a memory bug with string_appender due to accounting errors
+
 
 	2.7.0 - 30/04/2022
 	------------------
