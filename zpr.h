@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.7.1
+	Version 2.7.2
 	=============
 
 
@@ -379,7 +379,7 @@ namespace zpr::tt
 		inline size_t find(str_view sv) const
 		{
 			if(sv.size() > this->size())
-				return -1;
+				return static_cast<size_t>(-1);
 
 			else if(sv.empty())
 				return 0;
@@ -390,7 +390,7 @@ namespace zpr::tt
 					return i;
 			}
 
-			return -1;
+			return static_cast<size_t>(-1);
 		}
 
 		inline str_view substr(size_t pos, size_t cnt) const { return str_view(this->ptr + pos, cnt); }
@@ -790,9 +790,10 @@ namespace zpr
 			auto expval = static_cast<int64_t>(0.1760912590558 + exp2 * 0.301029995663981 + (conv.F - 1.5) * 0.289529654602168);
 
 			// now we want to compute 10^expval but we want to be sure it won't overflow
-			exp2 = static_cast<int64_t>(expval * 3.321928094887362 + 0.5);
+			exp2 = static_cast<int64_t>(static_cast<double>(expval) * 3.321928094887362 + 0.5);
 
-			const double z = expval * 2.302585092994046 - exp2 * 0.6931471805599453;
+			const double z = static_cast<double>(expval) * 2.302585092994046
+				- static_cast<double>(exp2) * 0.6931471805599453;
 			const double z2 = z * z;
 
 			conv.U = static_cast<uint64_t>(exp2 + 1023) << 52U;
@@ -817,7 +818,7 @@ namespace zpr
 				if((value >= 1e-4) && (value < 1e6))
 				{
 					if(static_cast<int64_t>(prec) > expval)
-						prec = static_cast<uint64_t>(static_cast<int64_t>(prec) - expval - 1);
+						prec = static_cast<int>(static_cast<int64_t>(prec) - expval - 1);
 
 					else
 						prec = 0;
@@ -837,11 +838,11 @@ namespace zpr
 			}
 
 			// will everything fit?
-			uint64_t fwidth = args.width;
+			auto fwidth = static_cast<uint64_t>(args.width);
 			if(args.width > minwidth)
 			{
 				// we didn't fall-back so subtract the characters required for the exponent
-				fwidth -= minwidth;
+				fwidth -= static_cast<uint64_t>(minwidth);
 			}
 			else
 			{
@@ -862,7 +863,7 @@ namespace zpr
 			// output the floating part
 
 			auto args_copy = args;
-			args_copy.width = fwidth;
+			args_copy.width = static_cast<int64_t>(fwidth);
 			auto len = static_cast<int64_t>(print_floating(cb, negative ? -value : value, args_copy));
 
 			// output the exponent part
@@ -877,7 +878,7 @@ namespace zpr
 				size_t digits_len = 0;
 
 				auto buf = print_decimal_integer(digits_buf, 8, static_cast<int64_t>(tt::_Absolute(expval)));
-				digits_len = 8 - (buf - digits_buf);
+				digits_len = 8 - static_cast<size_t>(buf - digits_buf);
 
 				len += digits_len + 1;
 				cb(expval < 0 ? '-' : '+');
@@ -893,7 +894,7 @@ namespace zpr
 					cb(' ', args.width - len), len = args.width;
 			}
 
-			return len;
+			return static_cast<size_t>(len);
 		}
 
 
@@ -960,17 +961,17 @@ namespace zpr
 			}
 
 			auto whole = static_cast<int64_t>(value);
-			auto tmp = (value - whole) * pow10[prec];
+			auto tmp = (value - static_cast<double>(whole)) * pow10[prec];
 			auto frac = static_cast<unsigned long>(tmp);
 
-			double diff = tmp - frac;
+			double diff = tmp - static_cast<double>(frac);
 
 			if(diff > 0.5)
 			{
 				frac += 1;
 
 				// handle rollover, e.g. case 0.99 with prec 1 is 1.0
-				if(frac >= pow10[prec])
+				if(frac >= static_cast<unsigned long>(pow10[prec]))
 				{
 					frac = 0;
 					whole += 1;
@@ -1061,7 +1062,7 @@ namespace zpr
 			for(size_t i = 0; i < len / 2; i++)
 				tt::swap(buf[i], buf[len - i - 1]);
 
-			auto padding_width = tt::_Maximum(int64_t(0), args.width - static_cast<int64_t>(len));
+			auto padding_width = static_cast<size_t>(tt::_Maximum(int64_t(0), args.width - static_cast<int64_t>(len)));
 
 			if(use_left_pad) cb(' ', padding_width);
 			if(use_zero_pad) cb('0', padding_width);
@@ -1094,9 +1095,9 @@ namespace zpr
 
 			constexpr auto hex_digit = [](int x) -> char {
 				if(0 <= x && x <= 9)
-					return '0' + x;
+					return static_cast<char>('0' + x);
 
-				return 'a' + x - 10;
+				return static_cast<char>('a' + x - 10);
 			};
 
 			char* ptr = buf + bufsz;
@@ -1288,7 +1289,7 @@ namespace zpr
 					pst->end++;
 
 					printed = true;
-					auto fmt_spec = parse_fmt_spec(tt::str_view(tmp, pst->end - tmp));
+					auto fmt_spec = parse_fmt_spec(tt::str_view(tmp, static_cast<size_t>(pst->end - tmp)));
 
 					one_printer(static_cast<format_args&&>(fmt_spec));
 
@@ -1333,87 +1334,6 @@ namespace zpr
 					print_one(cb, fmt_args, static_cast<_Type&&>(value));
 				}
 			});
-
-		#if 0
-			bool printed = false;
-			while(pst->end < pst->fmtend)
-			{
-				if(*pst->end == '{')
-				{
-					auto tmp = pst->end;
-
-					// flush whatever we have first:
-					cb(pst->beg, pst->end);
-					if(pst->end[1] == '{')
-					{
-						cb('{');
-						pst->end += 2;
-						pst->beg = pst->end;
-						continue;
-					}
-
-					while(pst->end[0] && pst->end[0] != '}')
-						pst->end++;
-
-					// owo
-					if(!pst->end[0])
-						return;
-
-					pst->end++;
-
-					printed = true;
-					auto fmt_spec = parse_fmt_spec(tt::str_view(tmp, pst->end - tmp));
-
-					if constexpr (TypeErased)
-					{
-						if(value == nullptr)
-						{
-							// don't do anything.
-						}
-						else
-						{
-							print_one(cb, static_cast<format_args&&>(fmt_spec),
-								*reinterpret_cast<const typename tt::remove_reference<_Type>::type*>(value));
-						}
-					}
-					else
-					{
-						print_one(cb, static_cast<format_args&&>(fmt_spec), static_cast<_Type&&>(value));
-					}
-
-					pst->beg = pst->end;
-					break;
-				}
-				else if(*pst->end == '}')
-				{
-					cb(pst->beg, pst->end + 1);
-
-					// well... we don't need to escape }, but for consistency, we accept either } or }} to print one }.
-					if(pst->end[1] == '}')
-						pst->end++;
-
-					pst->end++;
-					pst->beg = pst->end;
-				}
-				else
-				{
-					pst->end++;
-				}
-			}
-
-			if(not printed)
-			{
-				if constexpr (TypeErased)
-				{
-					if(value != nullptr)
-						print_one(cb, format_args{}, *reinterpret_cast<const typename tt::remove_reference<_Type>::type*>(value));
-				}
-				else
-				{
-					print_one(cb, format_args{}, static_cast<_Type&&>(value));
-				}
-			}
-		#endif
 		}
 
 
@@ -1439,7 +1359,7 @@ namespace zpr
 			(skip_fmts<_CallbackFn, _Types&&>(&st, cb, static_cast<_Types&&>(args)), ...);
 
 			// flush
-			cb(st.beg, st.fmtend - st.beg);
+			cb(st.beg, static_cast<size_t>(st.fmtend - st.beg));
 		}
 
 
@@ -1457,7 +1377,7 @@ namespace zpr
 			(skip_fmts<_CallbackFn, _Types&&, true>(&st, cb, idx < num_args ? args[idx++] : nullptr), ...);
 
 			// flush
-			cb(st.beg, st.fmtend - st.beg);
+			cb(st.beg, static_cast<size_t>(st.fmtend - st.beg));
 		}
 
 
@@ -1519,7 +1439,7 @@ namespace zpr
 			string_appender(std::string& buf) : m_ptr(buf.data()), m_buf(buf) { }
 			~string_appender()
 			{
-				m_buf.resize(m_ptr - m_buf.data());
+				m_buf.resize(static_cast<size_t>(m_ptr - m_buf.data()));
 			}
 
 			ZPR_ALWAYS_INLINE void operator() (char c)
@@ -1550,7 +1470,7 @@ namespace zpr
 
 			ZPR_ALWAYS_INLINE void operator() (const char* begin, const char* end)
 			{
-				size_t n = end - begin;
+				auto n = static_cast<size_t>(end - begin);
 				if(ZPR_UNLIKELY(get_remaining() < n))
 					this->reserve(m_buf.size() + n);
 
@@ -1634,12 +1554,12 @@ namespace zpr
 				}
 			}
 
-			ZPR_ALWAYS_INLINE void reserve(size_t amount) {}
+			ZPR_ALWAYS_INLINE void reserve(size_t) {}
 
 		private:
 			inline size_t remaining()
 			{
-				return Limit - (ptr - buf);
+				return Limit - static_cast<size_t>(ptr - buf);
 			}
 
 			inline void flush(bool last = false)
@@ -1654,8 +1574,8 @@ namespace zpr
 
 				if(!last || !Newline)
 				{
-					fwrite(buf, sizeof(char), ptr - buf, fd);
-					written += ptr - buf;
+					fwrite(buf, sizeof(char), static_cast<size_t>(ptr - buf), fd);
+					written += static_cast<size_t>(ptr - buf);
 
 					ptr = buf;
 				}
@@ -1663,8 +1583,8 @@ namespace zpr
 				{
 					// here's a special trick -- write one extra, because we always ensure that
 					// "one-past" the last character in our buffer is a newline.
-					fwrite(buf, sizeof(char), ptr - buf + 1, fd);
-					written += (ptr - buf) + 1;
+					fwrite(buf, sizeof(char), static_cast<size_t>(ptr - buf + 1), fd);
+					written += static_cast<size_t>(ptr - buf) + 1;
 
 					ptr = buf;
 				}
@@ -1688,7 +1608,7 @@ namespace zpr
 			callback_appender(_Fn* callback, bool newline) : len(0), newline(newline), callback(callback) { }
 			~callback_appender() { if(newline) { (*callback)("\n", 1); } }
 
-			ZPR_ALWAYS_INLINE void reserve(size_t amount) {}
+			ZPR_ALWAYS_INLINE void reserve(size_t) {}
 
 			ZPR_ALWAYS_INLINE void operator() (char c)
 			{
@@ -1734,7 +1654,7 @@ namespace zpr
 		{
 			buffer_appender(char* buf, size_t cap) : buf(buf), cap(cap), len(0) { }
 
-			ZPR_ALWAYS_INLINE void reserve(size_t amount) {}
+			ZPR_ALWAYS_INLINE void reserve(size_t) {}
 
 			ZPR_ALWAYS_INLINE void operator() (char c)
 			{
@@ -1757,7 +1677,7 @@ namespace zpr
 
 			ZPR_ALWAYS_INLINE void operator() (const char* begin, const char* end)
 			{
-				auto l = this->remaining(end - begin);
+				auto l = this->remaining(static_cast<size_t>(end - begin));
 				memmove(&this->buf[this->len], begin, l);
 				this->len += l;
 			}
@@ -2288,7 +2208,7 @@ namespace zpr
 					if constexpr (tt::is_unsigned<Decayed_T>::value)
 					{
 						digits = detail::print_integer(digits_buf, digits_buf_sz, x, base);
-						digits_len = digits_buf_sz - (digits - digits_buf);
+						digits_len = digits_buf_sz - static_cast<size_t>(digits - digits_buf);
 					}
 					else
 					{
@@ -2297,14 +2217,14 @@ namespace zpr
 							digits = detail::print_integer(digits_buf, digits_buf_sz,
 								static_cast<tt::make_unsigned_t<Decayed_T>>(x), base);
 
-							digits_len = digits_buf_sz - (digits - digits_buf);
+							digits_len = digits_buf_sz - static_cast<size_t>(digits - digits_buf);
 						}
 						else
 						{
 							auto abs_val = tt::_Absolute(x);
 							digits = detail::print_integer(digits_buf, digits_buf_sz, abs_val, base);
 
-							digits_len = digits_buf_sz - (digits - digits_buf);
+							digits_len = digits_buf_sz - static_cast<size_t>(digits - digits_buf);
 						}
 					}
 
@@ -2816,9 +2736,16 @@ namespace zpr
 	Version History
 	===============
 
+	2.7.2 - 10/08/2022
+	------------------
+	- Fix a bunch of implicit sign conversion warnings
+
+
+
 	2.7.1 - 10/08/2022
 	------------------
 	- Fix a memory bug with string_appender due to accounting errors
+
 
 
 	2.7.0 - 30/04/2022

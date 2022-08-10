@@ -16,7 +16,7 @@
 */
 
 /*
-	Version 1.4.0
+	Version 1.4.1
 	=============
 
 
@@ -237,7 +237,7 @@ namespace zst
 			inline size_t find(str_view sv) const
 			{
 				if(sv.size() > this->size())
-					return -1;
+					return static_cast<size_t>(-1);
 
 				else if(sv.empty())
 					return 0;
@@ -248,14 +248,14 @@ namespace zst
 						return i;
 				}
 
-				return -1;
+				return static_cast<size_t>(-1);
 			}
 
 			inline size_t rfind(value_type c) const { return this->rfind(str_view(&c, 1)); }
 			inline size_t rfind(str_view sv) const
 			{
 				if(sv.size() > this->size())
-					return -1;
+					return static_cast<size_t>(-1);
 
 				else if(sv.empty())
 					return this->size() - 1;
@@ -266,7 +266,7 @@ namespace zst
 						return i;
 				}
 
-				return -1;
+				return static_cast<size_t>(-1);
 			}
 
 			inline size_t find_first_of(str_view sv)
@@ -280,7 +280,7 @@ namespace zst
 					}
 				}
 
-				return -1;
+				return static_cast<size_t>(-1);
 			}
 
 			[[nodiscard]] inline str_view drop(size_t n) const
@@ -295,7 +295,7 @@ namespace zst
 			[[nodiscard]] inline str_view drop_last(size_t n) const
 			{ return (this->size() >= n ? this->substr(0, this->size() - n) : *this); }
 
-			[[nodiscard]] inline str_view substr(size_t pos = 0, size_t cnt = -1) const
+			[[nodiscard]] inline str_view substr(size_t pos = 0, size_t cnt = static_cast<size_t>(-1)) const
 			{
 				return str_view(this->ptr + pos, cnt == static_cast<size_t>(-1)
 					? (this->len > pos ? this->len - pos : 0)
@@ -772,6 +772,7 @@ namespace zst
 
 		operator bool() const { return this->state == STATE_VAL; }
 		bool ok() const { return this->state == STATE_VAL; }
+		bool is_err() const { return this->state == STATE_ERR; }
 
 		const T& unwrap() const { this->assert_has_value(); return this->val; }
 		const E& error() const { this->assert_is_error(); return this->err; }
@@ -809,8 +810,16 @@ namespace zst
 		auto map(Fn&& fn) -> Result<decltype(fn(detail::declval<T>())), E> const
 		{
 			using Res = Result<decltype(fn(this->val)), E>;
-			if(this->ok())  return Res(typename Res::tag_ok{}, fn(this->val));
-			else            return Res(typename Res::tag_err{}, this->err);
+			if constexpr (std::is_same_v<decltype(fn(this->val)), void>)
+			{
+				if(this->ok())  return Res();
+				else            return Err(this->err);
+			}
+			else
+			{
+				if(this->ok())  return Res(typename Res::tag_ok{}, fn(this->val));
+				else            return Res(typename Res::tag_err{}, this->err);
+			}
 		}
 
 		template <typename Fn>
@@ -913,6 +922,7 @@ namespace zst
 
 		operator bool() const { return this->state == STATE_VAL; }
 		bool ok() const { return this->state == STATE_VAL; }
+		bool is_err() const { return this->state == STATE_ERR; }
 
 		const E& error() const { this->assert_is_error(); return this->err; }
 		E& error() { this->assert_is_error(); return this->err; }
@@ -1069,6 +1079,12 @@ namespace zst::impl
 /*
 	Version History
 	===============
+
+	1.4.1 - 10/08/2022
+	------------------
+	- fix implicit conversion warnings
+
+
 
 	1.4.0 - 08/09/2021
 	------------------
