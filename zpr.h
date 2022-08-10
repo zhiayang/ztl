@@ -43,7 +43,7 @@
 
 
 /*
-	Version 2.7.2
+	Version 2.7.3
 	=============
 
 
@@ -1267,6 +1267,9 @@ namespace zpr
 			{
 				if(*pst->end == '{')
 				{
+					if(printed)
+						break;
+
 					auto tmp = pst->end;
 
 					// flush whatever we have first:
@@ -1294,7 +1297,6 @@ namespace zpr
 					one_printer(static_cast<format_args&&>(fmt_spec));
 
 					pst->beg = pst->end;
-					break;
 				}
 				else if(*pst->end == '}')
 				{
@@ -2735,6 +2737,12 @@ namespace zpr
 
 	Version History
 	===============
+
+	2.7.3 - 10/08/2022
+	------------------
+	- Fix '}}' not actually printing '}'
+
+
 
 	2.7.2 - 10/08/2022
 	------------------
