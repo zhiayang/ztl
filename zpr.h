@@ -42,7 +42,7 @@
 */
 
 /*
-    Version 2.7.4
+    Version 2.7.5
     =============
 
 
@@ -2496,6 +2496,8 @@ namespace zpr
 		template <typename _Type, typename _CallbackFn>
 		type_erased_arg<_CallbackFn> erase_argument(_CallbackFn& callback, _Type&& arg)
 		{
+			(void) callback;
+
 			using DecayedT = tt::decay_t<_Type>;
 
 			type_erased_arg<_CallbackFn> erased {};
@@ -2657,6 +2659,12 @@ namespace zpr
 
     Version History
     ===============
+
+    2.7.5 - 01/10/2022
+    ------------------
+    - Fix another unused parameter warning
+
+
 
     2.7.4 - 24/09/2022
     ------------------
