@@ -42,7 +42,7 @@
 */
 
 /*
-    Version 2.7.5
+    Version 2.7.6
     =============
 
 
@@ -199,8 +199,8 @@
     Version history has been moved to the bottom of the file.
 */
 
-#pragma once
 // clang-format off
+#pragma once
 
 #include <float.h>
 #include <stddef.h>
@@ -778,7 +778,8 @@ namespace zpr
 			conv.U = (conv.U & ((1ULL << 52U) - 1U)) | (1023ULL << 52U);        // drop the exponent so conv.F is now in [1,2)
 
 			// now approximate log10 from the log2 integer part and an expansion of ln around 1.5
-			auto expval = static_cast<int64_t>(0.1760912590558 + exp2 * 0.301029995663981 + (conv.F - 1.5) * 0.289529654602168);
+			auto expval = static_cast<int64_t>(0.1760912590558 + static_cast<double>(exp2) * 0.301029995663981
+				+ (conv.F - 1.5) * 0.289529654602168);
 
 			// now we want to compute 10^expval but we want to be sure it won't overflow
 			exp2 = static_cast<int64_t>(static_cast<double>(expval) * 3.321928094887362 + 0.5);
@@ -876,13 +877,13 @@ namespace zpr
 
 				// zero-pad to minwidth - 2
 				if(auto tmp = (minwidth - 2) - static_cast<int>(digits_len); tmp > 0)
-					len += tmp, cb('0', tmp);
+					len += tmp, cb('0', static_cast<size_t>(tmp));
 
 				cb(buf, digits_len);
 
 				// might need to right-pad spaces
 				if(use_right_pad && args.width > len)
-					cb(' ', args.width - len), len = args.width;
+					cb(' ', static_cast<size_t>(args.width - len)), len = args.width;
 			}
 
 			return static_cast<size_t>(len);
@@ -1591,8 +1592,8 @@ namespace zpr
 
 			ZPR_ALWAYS_INLINE void operator() (const char* begin, const char* end)
 			{
-				(*callback)(begin, end - begin);
-				this->len += (end - begin);
+				(*callback)(begin, static_cast<size_t>(end - begin));
+				this->len += static_cast<size_t>(end - begin);
 			}
 
 			ZPR_ALWAYS_INLINE void operator() (const char* begin, size_t len) { (*callback)(begin, len); this->len += len; }
@@ -2660,10 +2661,14 @@ namespace zpr
     Version History
     ===============
 
+    2.7.6 - 23/10/2022
+    ------------------
+    - Fix implicit conversion warnings
+
+
     2.7.5 - 01/10/2022
     ------------------
     - Fix another unused parameter warning
-
 
 
     2.7.4 - 24/09/2022
@@ -2673,11 +2678,9 @@ namespace zpr
     - Silence unused parameter warnings
 
 
-
     2.7.3 - 10/08/2022
     ------------------
     - Fix '}}' not actually printing '}'
-
 
 
     2.7.2 - 10/08/2022
@@ -2685,11 +2688,9 @@ namespace zpr
     - Fix a bunch of implicit sign conversion warnings
 
 
-
     2.7.1 - 10/08/2022
     ------------------
     - Fix a memory bug with string_appender due to accounting errors
-
 
 
     2.7.0 - 30/04/2022
@@ -2697,7 +2698,6 @@ namespace zpr
     - Add vprint API, which are functions prefixed with `v`. This API path tries to reduce the number of
    template instantiations produced by type-erasing the arguments as far as possible in order to prevent code
    bloat.
-
 
 
     2.6.0 - 29/04/2022
@@ -2712,12 +2712,10 @@ namespace zpr
    it, then you don't get the speedup, but it's not any slower).
 
 
-
     2.5.7 - 26/11/2021
     ------------------
     Bug fixes:
     - fix mishandling of negative widths (ie. left-align/right-pad) when using `zpr::w` or `zpr::wp`.
-
 
 
     2.5.6 - 18/10/2021
@@ -2726,12 +2724,10 @@ namespace zpr
     - increase protection against macros with better naming
 
 
-
     2.5.5 - 18/10/2021
     ------------------
     Bug fixes:
     - increase protection against macros with more underscores
-
 
 
     2.5.4 - 18/10/2021
@@ -2741,11 +2737,9 @@ namespace zpr
     - add more protection against havoc-wrecking macros (abs, B1...) by adding underscores
 
 
-
     2.5.3 - 15/09/2021
     ------------------
     Add additional methods to `tt::str_view`, and fix broken operator== on it
-
 
 
     2.5.2 - 30/08/2021
@@ -2753,17 +2747,14 @@ namespace zpr
     Improve safety of zpr::fwd calls by adding range checking to the type-erased value array.
 
 
-
     2.5.1 - 27/08/2021
     ------------------
     Fix implicit integer casting warnings
 
 
-
     2.5.0 - 07/08/2021
     ------------------
     Add a printer for T[N] (ie. arrays of arbitrary type)
-
 
 
     2.4.6 - 04/07/2021
@@ -2779,12 +2770,10 @@ namespace zpr
       printing garbage
 
 
-
     2.4.4 - 26/05/2021
     ------------------
     Bug fixes:
     - fix const correctness when using zpr::fwd()
-
 
 
     2.4.3 - 25/05/2021
@@ -2793,18 +2782,15 @@ namespace zpr
     - fix ignored specifier when printing a `char`
 
 
-
     2.4.2 - 25/05/2021
     ------------------
     Bug fixes:
     - fix broken std::string sprint()
 
 
-
     2.4.1 - 25/05/2021
     ------------------
     Improve documentation
-
 
 
     2.4.0 - 25/05/2021
@@ -2817,12 +2803,10 @@ namespace zpr
     It is not safe to store the return value of `zpr::fwd`, especially if its arguments contain rvalues.
 
 
-
     2.3.1 - 01/05/2021
     ------------------
     Bug fixes:
     - fix a bug where the #-printing of iterables only printed the first element
-
 
 
     2.3.0 - 01/05/2021
@@ -2837,8 +2821,6 @@ namespace zpr
       This is a potentially breaking change, hence the minor version bump.
 
 
-
-
     2.2.1 - 01/05/2021
     ------------------
     Improve the `file_appender` so that newlines are written together with the last part of the buffer in
@@ -2846,20 +2828,17 @@ namespace zpr
     printing in multithreaded scenarios.
 
 
-
     2.2.0 - 27/04/2021
     ------------------
     Add 'alternate' flag for the iterable printers; if true, then the opening and closing brackets ('[' and
    ']') and the commas (',') between items are *not* printed. As a reminder, use '{#}' to specify alternate
-   printing mode.
-
+    printing mode.
 
 
     2.1.13 - 23/04/2021
     -------------------
     Bug fixes:
     - fix implicit conversion warning on MSVC in number printing
-
 
 
     2.1.12 - 15/03/2021
@@ -2869,19 +2848,16 @@ namespace zpr
    and are treated as TRUE. Also update the documentation about this.
 
 
-
     2.1.11 - 15/03/2021
     -------------------
     Bug fixes:
     - fix broken drop() and take_last() for str_view... again
 
 
-
     2.1.10 - 02/01/2021
     -------------------
     Bug fixes:
     - fix truncated `inf` and `nan` when precision is specified.
-
 
 
     2.1.9 - 23/12/2020
@@ -2891,12 +2867,10 @@ namespace zpr
     - fix pointless assertion in integer printing (`sizeof(T) <= 64` -> `sizeof(T) <= 8`)
 
 
-
     2.1.8 - 14/12/2020
     ------------------
     Bug fixes:
     - fix incorrect drop(), drop_last(), take(), and take_last() on tt::str_view
-
 
 
     2.1.7 - 21/11/2020
@@ -2905,12 +2879,10 @@ namespace zpr
     - fix warning on member initialisation order for cprint
 
 
-
     2.1.6 - 20/11/2020
     ------------------
     Bug fixes:
     - fix broken std::pair printing
-
 
 
     2.1.5 - 17/11/2020
@@ -2919,19 +2891,16 @@ namespace zpr
     - fix broken binary integer printing
 
 
-
     2.1.4 - 13/11/2020
     ------------------
     Bug fixes:
     - fix 'comparison between integers of different signs' (or whatever) warning
 
 
-
     2.1.3 - 04/10/2020
     ------------------
     Bug fixes:
     - fix an issue preventing user-defined formatters from calling cprint() with the callback given to them
-
 
 
     2.1.2 - 01/10/2020
@@ -2942,14 +2911,12 @@ namespace zpr
     - revert back to memcpy due to alignment concerns
 
 
-
     2.1.1 - 29/09/2020
     ------------------
     Remove tt::forward and tt::move to cut down on templates (they're just glorified static_cast<T&&>s anyway)
 
     Bug fixes:
     - fix potential template failure for signed and unsigned char
-
 
 
     2.1.0 - 28/09/2020
@@ -2961,12 +2928,10 @@ namespace zpr
     - fix the implicit constructor for str_view taking const char (&)[N]
 
 
-
     2.0.2 - 28/09/2020
     ------------------
     Small performance improvements. Reduced enable_if usage in favour of template specialisation to improve
     compile times.
-
 
 
     2.0.1 - 28/09/2020
@@ -2974,100 +2939,18 @@ namespace zpr
     Add `ln` versions of the cprint() functions.
 
 
-
     2.0.0 - 27/09/2020
     ------------------
     Completely rewrite the internals; now no longer tuple-based, and we're back to template packs. However,
     instead of using recursion, we are now expanding with fold expressions. This comes with one drawback,
-   however; we now do not support in-stream width and precision specifiers (eg. {*.s}). instead, we expose 3
-   new functions, w(), p(), and wp(), which do what their names would suggest; see the documentation above for
-   more info.
+    however; we now do not support in-stream width and precision specifiers (eg. {*.s}). instead, we expose 3
+    new functions, w(), p(), and wp(), which do what their names would suggest; see the documentation above for
+    more info.
 
     Major version bump due to breaking api change.
 
 
-
-    1.6.0 - 26/09/2020
-    ------------------
-    Add the ZPR_FREESTANDING define; see documentation above for details. Also add cprint() and family, which
-    allow using a callback of the form `void (*)(char*, size_t)` -- or a compatible template function object,
-    to print.
-
-    Bug fixes:
-    - fix printing integer zeroes.
-    - fix printing hex digits.
-
-
-
-    1.5.0 - 10/09/2020
-    ------------------
-    Change the print_formatter interface subtly. Now, you can choose to specialise the template for both the
-   decayed type (eg. int, const char*), or for the un-decayed type (eg. const int&, const char (&)[N]). The
-   compiler will choose the appropriate specialisation, preferring the latter (not-decayed) type, if it
-   exists.
-
-    Bug fixes:
-    - fix issues where we would write NULL bytes into the output stream, due to the 'char(&)[N]' change.
-    - fix right-padding and zero-padding behaviour
-
-
-
-    1.4.0 - 10/09/2020
-    ------------------
-    Completely remove dependency on STL types. sadly this includes lots of re-implemented type_traits, but an
-   okay cost to pay, I suppose. Introduces ZPR_USE_STD define to control this.
-
-    Bug fixes: lots of fixes on formatting correctness; we should now be correct wrt. printf.
-
-
-
-    1.3.1 - 09/09/2020
-    ------------------
-    Remove dependency on std::to_chars, to slowly wean off STL. Introduce two new #defines:
-    ZPR_DECIMAL_LOOKUP_TABLE, and ZPR_HEXADECIMAL_LOOKUP_TABLE. see docs for info.
-
-
-
-    1.3.0 - 08/09/2020
-    ------------------
-    Add overloads for the user-facing print functions that accept std::string_view as the format string. This
-   also works for std::string since string_view has an implicit conversion constructor for it.
-
-    Removed user-facing overloads of print and friends that take 'const char*'; now they either take
-   std::string_view (as above), or (const char&)[].
-
-    Change the behaviour of string printers; now, any iterable type with a value_type typedef equal to 'char'
-    (exactly char -- not signed char, not unsigned char) will print as a string. This lets us cover custom
-    string types as well. A side effect of this is that std::vector<char> will print as a string, which might
-    be unexpected.
-
-    Bug fixes:
-    - broken formatting for floating point numbers
-    - '{}' now uses '%g' format for floating point numbers
-    - '{p}' (ie. '%p') now works, including '{}' for void* and const void*.
-
-
-
-    1.2.0 - 20/07/2020
-    ------------------
-    Use floating-point printer from mpaland/printf, letting us actually beat printf in all cases.
-
-
-
-    1.1.1 - 20/07/2020
-    ------------------
-    Don't include unistd.h
-
-
-
-    1.1.0 - 20/07/2020
-    ------------------
-    Performance improvements: switched to tuple-based arguments instead of parameter-packed recursion. We are
-   now (slightly) faster than printf (as least on two of my systems) as long as no floating-point is involved.
-   (for now we are still forced to call snprintf to print floats... charconv pls)
-
-    Bug fixes: fixed broken escaping of {{ and }}.
-
+    --- more changes ---
 
 
     1.0.0 - 19/07/2020
