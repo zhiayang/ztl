@@ -42,7 +42,7 @@
 */
 
 /*
-    Version 2.7.6
+    Version 2.7.7
     =============
 
 
@@ -425,7 +425,7 @@ namespace zpr
 
 	struct format_args
 	{
-		char specifier      = -1;
+		char specifier      = 0;
 		uint8_t flags       = 0;
 
 		int64_t width       = -1;
@@ -937,7 +937,7 @@ namespace zpr
 				return print_exponent(cb, value, static_cast<format_args&&>(args));
 
 			// default to g.
-			if(args.specifier == -1)
+			if(args.specifier == 0)
 				args.specifier = 'g';
 
 			// test for negative
@@ -2320,7 +2320,7 @@ namespace zpr
 		template <typename _Cb>
 		ZPR_ALWAYS_INLINE void print(char x, _Cb&& cb, format_args args)
 		{
-			if(args.specifier != -1 && args.specifier != 'c')
+			if(args.specifier != 0 && args.specifier != 'c')
 			{
 				print_formatter<unsigned char>().print(static_cast<unsigned char>(x),
 					static_cast<_Cb&&>(cb),
@@ -2660,6 +2660,11 @@ namespace zpr
 
     Version History
     ===============
+
+    2.7.7 - 27/10/2022
+    ------------------
+    - Fix character printing on ARM
+
 
     2.7.6 - 23/10/2022
     ------------------
