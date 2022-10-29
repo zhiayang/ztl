@@ -58,14 +58,14 @@
     3. no support for positional arguments (for now)
 
     Otherwise, it should support most of the "typical use-case" features that std::format provides. In essence
-   it is a type-safe alternative to printf supporting custom type printers. The usage is as such:
+    it is a type-safe alternative to printf supporting custom type printers. The usage is as such:
 
     zpr::println("{<spec>}", argument);
 
     where `<spec>` is exactly a `printf`-style format specifier (note: there is no leading colon unlike the
-   fmtlib/python style), and where the final type specifier (eg. `s`, `d`) is optional. Floating point values
-   will print as if `g` was used. Size specifiers (eg. `lld`) are not supported. Variable width and precision
-   specifiers (eg. `%.*s`) are not supported.
+    fmtlib/python style), and where the final type specifier (eg. `s`, `d`) is optional. Floating point values
+    will print as if `g` was used. Size specifiers (eg. `lld`) are not supported. Variable width and precision
+    specifiers (eg. `%.*s`) are not supported.
 
     The currently supported builtin formatters are:
     - integral types            (signed/unsigned char/short/int/long/long long) (but not 'char')
@@ -124,10 +124,10 @@
     -----------------
 
     To format custom types, specialise the print_formatter struct. An example of how it should be done can be
-   seen from the builtin formatters, taking note to follow the signatures.
+    seen from the builtin formatters, taking note to follow the signatures.
 
     A key point to note is that you can specialise both for the 'raw' type -- ie. you can specialise for T&,
-   and also for T; the non-decayed specialisation is preferred if both exist.
+    and also for T; the non-decayed specialisation is preferred if both exist.
 
     (NB: the reason for this is so that we can support reference to array of char, ie. char (&)[N])
 
@@ -191,8 +191,8 @@
     for each combination of (callback_type, value_type).
 
     Of course, there will still be one template for each combination of argument types for the top-level
-   function, but that is unavoidable --- we try to keep those functions small so code-size-explosion is
-   reduced.
+    function, but that is unavoidable --- we try to keep those functions small so code-size-explosion is
+    reduced.
 
 
     ----
@@ -2701,20 +2701,21 @@ namespace zpr
     2.7.0 - 30/04/2022
     ------------------
     - Add vprint API, which are functions prefixed with `v`. This API path tries to reduce the number of
-   template instantiations produced by type-erasing the arguments as far as possible in order to prevent code
-   bloat.
+    template instantiations produced by type-erasing the arguments as far as possible in order to prevent code
+    bloat.
 
 
     2.6.0 - 29/04/2022
     ------------------
     - Add `zpr::with` that lets you print a value with a lambda/function directly, instead of having to
-   specialise a `print_formatter`.
+    specialise a `print_formatter`.
 
     - Remove our type traits implementation since <type_traits> is a freestanding header that should always be
-   available.
+    available.
+
     - Add a new `length()` member to print_formatter to allow `sprint()` to `std::string` to pre-reserve the
-   string buffer so we pay less for constant append/resize. (this method is optional; if you don't implement
-   it, then you don't get the speedup, but it's not any slower).
+    string buffer so we pay less for constant append/resize. (this method is optional; if you don't implement
+    it, then you don't get the speedup, but it's not any slower).
 
 
     2.5.7 - 26/11/2021
@@ -2836,7 +2837,7 @@ namespace zpr
     2.2.0 - 27/04/2021
     ------------------
     Add 'alternate' flag for the iterable printers; if true, then the opening and closing brackets ('[' and
-   ']') and the commas (',') between items are *not* printed. As a reminder, use '{#}' to specify alternate
+    ']') and the commas (',') between items are *not* printed. As a reminder, use '{#}' to specify alternate
     printing mode.
 
 
@@ -2850,7 +2851,7 @@ namespace zpr
     -------------------
     Bug fixes:
     - fix handling of control macros when they are defined without a value. Now they will not generate errors,
-   and are treated as TRUE. Also update the documentation about this.
+    and are treated as TRUE. Also update the documentation about this.
 
 
     2.1.11 - 15/03/2021
