@@ -16,7 +16,7 @@
 */
 
 /*
-    Version 2.0.0
+    Version 2.0.1
     =============
 
 
@@ -107,6 +107,7 @@
 
 #if !ZST_FREESTANDING && ZST_USE_STD
 	#include <string>
+	#include <vector>
 	#include <string_view>
 
 	#include <memory>
@@ -1572,96 +1573,101 @@ constexpr inline zst::byte_span operator""_bs(const char* s, size_t n)
 
 
 /*
-	Version History
-	===============
+    Version History
+    ===============
 
-	2.0.0 - 26/04/2023
-	------------------
-	- switch to C++20, partial conversion to concepts
-	- add automatic derived -> base casting for Result<std::unique_ptr<T>>
-	- add Either<L, R>
+    2.0.1 - 31/07/2023
+    ------------------
+    - Add missing <vector> include
 
 
-
-	1.4.3 - 18/01/2023
-	------------------
-	- add endianness support to str_view
-	- add transfer_suffix
-	- add unique_span
-	- add _bs and _sv literals
-	- add `drop_until` and `take_until` for str_view
-
-
-	1.4.2 - 26/09/2022
-	------------------
-	- fix wrong placement of const in `map` and `flatmap`
-	- add `add_value` function to Result<void>
-	- add `remove_value` function to Result<T>
-	- add Failable type alias
-	- fix missing includes, and only define `ErrFmt` in non-freestanding mode
-
-
-	1.4.1 - 10/08/2022
-	------------------
-	- fix implicit conversion warnings
+    2.0.0 - 26/04/2023
+    ------------------
+    - switch to C++20, partial conversion to concepts
+    - add automatic derived -> base casting for Result<std::unique_ptr<T>>
+    - add Either<L, R>
 
 
 
-	1.4.0 - 08/09/2021
-	------------------
-	- add map() and flatmap() to Result
+    1.4.3 - 18/01/2023
+    ------------------
+    - add endianness support to str_view
+    - add transfer_suffix
+    - add unique_span
+    - add _bs and _sv literals
+    - add `drop_until` and `take_until` for str_view
+
+
+    1.4.2 - 26/09/2022
+    ------------------
+    - fix wrong placement of const in `map` and `flatmap`
+    - add `add_value` function to Result<void>
+    - add `remove_value` function to Result<T>
+    - add Failable type alias
+    - fix missing includes, and only define `ErrFmt` in non-freestanding mode
+
+
+    1.4.1 - 10/08/2022
+    ------------------
+    - fix implicit conversion warnings
 
 
 
-	1.3.3 - 31/08/2021
-	------------------
-	- Fix implicit cast for inherited classes in Result
-	- Rearrange how the error function is called. It's now a normal function
-	  that just takes a string+length, because obviously we can't instantiate all possible
-	  templates ahead of time.
+    1.4.0 - 08/09/2021
+    ------------------
+    - add map() and flatmap() to Result
 
 
 
-	1.3.2 - 23/08/2021
-	------------------
-	Fix forward declaration of zpr::print_formatter.
+    1.3.3 - 31/08/2021
+    ------------------
+    - Fix implicit cast for inherited classes in Result
+    - Rearrange how the error function is called. It's now a normal function
+      that just takes a string+length, because obviously we can't instantiate all possible
+      templates ahead of time.
 
 
 
-	1.3.1 - 08/08/2021
-	------------------
-	Fix a bug in buffer<T>::append_bytes being SFINAE-ed wrongly
+    1.3.2 - 23/08/2021
+    ------------------
+    Fix forward declaration of zpr::print_formatter.
 
 
 
-	1.3.0 - 03/08/2021
-	------------------
-	Add buffer<T>, which is essentially a lightweight std::vector. requires operator new[];
-
-	Add chars() for str_view where T = uint8_t, which returns a normal str_view
-	Add span<T> (== str_view<T>) and byte_span (== str_view<uint8_t>)
+    1.3.1 - 08/08/2021
+    ------------------
+    Fix a bug in buffer<T>::append_bytes being SFINAE-ed wrongly
 
 
 
-	1.2.1 - 03/08/2021
-	------------------
-	Make str_view::operator[] const
+    1.3.0 - 03/08/2021
+    ------------------
+    Add buffer<T>, which is essentially a lightweight std::vector. requires operator new[];
+
+    Add chars() for str_view where T = uint8_t, which returns a normal str_view
+    Add span<T> (== str_view<T>) and byte_span (== str_view<uint8_t>)
 
 
 
-	1.2.0 - 05/06/2021
-	------------------
-	Add `starts_with` and `ends_with` for str_view
+    1.2.1 - 03/08/2021
+    ------------------
+    Make str_view::operator[] const
 
 
 
-	1.1.0 - 28/05/2021
-	------------------
-	Various changes...
+    1.2.0 - 05/06/2021
+    ------------------
+    Add `starts_with` and `ends_with` for str_view
 
 
 
-	1.0.0 - 24/05/2021
-	------------------
-	Initial Release
+    1.1.0 - 28/05/2021
+    ------------------
+    Various changes...
+
+
+
+    1.0.0 - 24/05/2021
+    ------------------
+    Initial Release
 */
