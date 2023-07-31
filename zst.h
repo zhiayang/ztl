@@ -1,62 +1,70 @@
 /*
-	zst.h
-	Copyright 2020 - 2021, zhiayang
+    zst.h
+    Copyright 2020 - 2021, zhiayang
 
-	Licensed under the Apache License, Version 2.0 (the "License");
-	you may not use this file except in compliance with the License.
-	You may obtain a copy of the License at
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
-	Unless required by applicable law or agreed to in writing, software
-	distributed under the License is distributed on an "AS IS" BASIS,
-	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-	See the License for the specific language governing permissions and
-	limitations under the License.
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
 */
 
 /*
-	Version 1.4.1
-	=============
+    Version 2.0.0
+    =============
 
 
 
-	Documentation
-	=============
+    Documentation
+    =============
 
-	Just a collection of various common utility classes/functions that aren't big enough
-	to justify their own header library.
+    Just a collection of various common utility classes/functions that aren't
+    big enough to justify their own header library.
 
-	Macros:
+    Macros:
 
-	- ZST_USE_STD
-		this is *TRUE* by default. controls whether or not STL type interfaces are used; with it,
-		str_view gains implicit constructors accepting std::string and std::string_view, as well
-		as methods to convert to them (sv() and str()).
+    - ZST_USE_STD
+        this is *TRUE* by default. controls whether or not STL type interfaces
+        are used; with it, str_view gains implicit constructors accepting std::string
+        and std::string_view, as well as methods to convert to them (sv() and str()).
 
-	- ZST_FREESTANDING
-		this is *FALSE by default; controls whether or not a standard library implementation is
-		available. if not, then memset(), memmove(), memcmp(), strlen(), and strncmp() are forward declared
-		according to the C library specifications, but not defined.
+    - ZST_FREESTANDING
+        this is *FALSE by default; controls whether or not a standard library
+        implementation is available. if not, then memset(), memmove(), memcmp(),
+        strlen(), and strncmp() are forward declared according to the C library
+        specifications, but not defined.
 
-	- ZST_HAVE_BUFFER
-		this is *TRUE* by default. controls whether the zst::buffer<T> type is available. If you do not have
-		operator new[] and want to avoid link errors, then set this to false.
-
-
-	Note that ZST_FREESTANDING implies ZST_USE_STD = 0.
-
-	Also note that buffer<T>, while it is itself a RAII type, it does *NOT* correctly RAII its contents.
-	notably, no copy or move constructors will be called on any elements, only destructors. Thus, the
-	element type should be limited to POD types.
-
-	This may change in the future.
+    - ZST_HAVE_BUFFER
+        this is *TRUE* by default. controls whether the zst::buffer<T> type is
+        available. If you do not have operator new[] and want to avoid link errors,
+        then set this to false.
 
 
-	Version history is at the bottom of the file.
+    Note that ZST_FREESTANDING implies ZST_USE_STD = 0.
+
+    Also note that buffer<T>, while it is itself a RAII type, it does *NOT*
+    correctly RAII its contents. notably, no copy or move constructors will be
+    called on any elements, only destructors. Thus, the element type should be
+    limited to POD types.
+
+    This may change in the future.
+
+
+    Version history is at the bottom of the file.
 */
-
+// clang-format off
 #pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+#include <concepts>
+#include <type_traits>
 
 #define ZST_DO_EXPAND(VAL)  VAL ## 1
 #define ZST_EXPAND(VAL)     ZST_DO_EXPAND(VAL)
@@ -100,7 +108,20 @@
 #if !ZST_FREESTANDING && ZST_USE_STD
 	#include <string>
 	#include <string_view>
+
+	#include <memory>
+#else
+
+// if we DONT have std, then make a shitty unique_ptr that will allow SFINAE
+namespace std
+{
+	template <int>
+	class unique_ptr;
+}
+
 #endif
+
+
 
 #undef ZST_DO_EXPAND
 #undef ZST_EXPAND
@@ -109,9 +130,13 @@
 // forward declare the zpr namespace...
 namespace zpr
 {
+	// if zpr was included before us, then we don't forward declare.
+#if !defined(ZPR_USE_STD) && !defined(ZPR_FREESTANDING)
 	// as well as the print_formatter.
 	template <typename, typename>
 	struct print_formatter;
+#endif
+
 }
 
 namespace zst
@@ -123,66 +148,81 @@ namespace zst
 	namespace detail
 	{
 		template <typename T> T min(T a, T b) { return a < b ? a : b;}
+	}
 
-		template <typename, typename>   struct is_same { static constexpr bool value = false; };
-		template <typename T>           struct is_same<T, T> { static constexpr bool value = true; };
-
-
-		template <bool B, typename T = void>    struct enable_if { };
-		template <typename T>                   struct enable_if<true, T> { using type = T; };
-
-		struct true_type  { static constexpr bool value = true; };
-		struct false_type { static constexpr bool value = false; };
-
-		template <typename T, T v>
-		struct integral_constant
-		{
-			static constexpr T value = v;
-			using value_type = T;
-			using type = integral_constant; // using injected-class-name
-			constexpr operator value_type() const noexcept { return value; }
-			constexpr value_type operator()() const noexcept { return value; }
-		};
-
-		template <typename B> true_type  test_pre_ptr_convertible(const volatile B*);
-		template <typename>   false_type test_pre_ptr_convertible(const volatile void*);
-
-		template <typename, typename>
-		auto test_pre_is_base_of(...) -> true_type;
-
-		template <typename B, typename D>
-		auto test_pre_is_base_of(int) -> decltype(test_pre_ptr_convertible<B>(static_cast<D*>(nullptr)));
-
-		template <typename Base, typename Derived>
-		struct is_base_of : integral_constant<bool, __is_class(Base) && __is_class(Derived)
-			&& decltype(test_pre_is_base_of<Base, Derived>(0))::value
-		>
-		{ };
-
-		template <typename T>
-		struct __stop_declval_eval { static constexpr bool __stop = false; };
-
-		template <typename T, typename U = T&&>
-		U __declval(int);
-
-		template <typename T>
-		T __declval(long);
-
-		template <typename T>
-		auto declval() -> decltype(__declval<T>(0))
-		{
-			static_assert(__stop_declval_eval<T>::__stop, "declval() must not be used!");
-			return __stop_declval_eval<T>::__unknown();
-		}
+	namespace impl
+	{
+		template <typename... Args>
+		[[noreturn]] void error_wrapper(const char* fmt, Args&&... args);
 	}
 }
 
+#if (__cplusplus >= 202000L)
+#include <bit>
+#endif
 
 namespace zst
 {
+	template <typename T, typename std::enable_if_t<std::is_signed_v<T>, int> = 0>
+	inline T byteswap(T x)
+	{
+		return byteswap<std::make_unsigned_t<T>>(static_cast<std::make_unsigned_t<T>>(x));
+	}
+
+	inline uint16_t byteswap(uint16_t x)
+	{
+#if(_MSC_VER)
+		return _byteswap_ushort(value);
+#else
+		// Compiles to bswap since gcc 4.5.3 and clang 3.4.1
+		return (uint16_t) (((uint16_t) (x & 0x00ff) << 8) | ((uint16_t) (x & 0xff00) >> 8));
+#endif
+	}
+
+	inline uint32_t byteswap(uint32_t x)
+	{
+#if(_MSC_VER)
+		return _byteswap_ulong(value);
+#else
+		// Compiles to bswap since gcc 4.5.3 and clang 3.4.1
+		return ((x & 0x000000ff) << 24) | ((x & 0x0000ff00) << 8) | ((x & 0x00ff0000) >> 8) | ((x & 0xff000000) >> 24);
+#endif
+	}
+
+	inline uint64_t byteswap(uint64_t value)
+	{
+#if(_MSC_VER)
+		return _byteswap_uint64(value);
+#else
+		// Compiles to bswap since gcc 4.5.3 and clang 3.4.1
+		return ((value & 0xFF00000000000000u) >> 56u) | ((value & 0x00FF000000000000u) >> 40u)
+		     | ((value & 0x0000FF0000000000u) >> 24u) | ((value & 0x000000FF00000000u) >> 8u)
+		     | ((value & 0x00000000FF000000u) << 8u) | ((value & 0x0000000000FF0000u) << 24u)
+		     | ((value & 0x000000000000FF00u) << 40u) | ((value & 0x00000000000000FFu) << 56u);
+#endif
+	}
+
 	namespace impl
 	{
-		template <typename CharType>
+		#if (__cplusplus >= 202000L)
+			using endian = std::endian;
+		#else
+			// copied from cppref
+			enum class endian
+			{
+			#if defined(_WIN32)
+				little = 0,
+			    big    = 1,
+			    native = little,
+		    #else
+				little = __ORDER_LITTLE_ENDIAN__,
+				big    = __ORDER_BIG_ENDIAN__,
+				native = __BYTE_ORDER__,
+			#endif
+			};
+		#endif
+
+		template <typename CharType, impl::endian Endian = impl::endian::native>
 		struct str_view
 		{
 			using value_type = CharType;
@@ -193,10 +233,10 @@ namespace zst
 			template <size_t N>
 			constexpr str_view(const value_type (&s)[N]) : ptr(s), len(N - 1) { }
 
-			template <typename T, typename = typename detail::enable_if<
-				detail::is_same<char, value_type>::value &&
-				detail::is_same<const char*, T>::value
-			>::type>
+			template <typename T, typename = std::enable_if_t<
+				std::is_same_v<char, value_type> &&
+				(std::is_same_v<char*, T> || std::is_same_v<const char*, T>)
+			>>
 			constexpr str_view(T s) : ptr(s), len(strlen(s)) { }
 
 			constexpr str_view(str_view&&) = default;
@@ -207,7 +247,7 @@ namespace zst
 			constexpr inline bool operator== (const str_view& other) const
 			{
 				return (this->len == other.len) &&
-					(this->ptr == other.ptr || (memcmp(this->ptr, other.ptr, detail::min(this->len, other.len)) == 0)
+					(this->ptr == other.ptr || (memcmp(this->ptr, other.ptr, this->len * sizeof(CharType)) == 0)
 				);
 			}
 
@@ -224,14 +264,27 @@ namespace zst
 			constexpr inline bool empty() const { return this->len == 0; }
 			constexpr inline const value_type* data() const { return this->ptr; }
 
-			inline str_view<uint8_t> bytes() const { return str_view<uint8_t>(reinterpret_cast<const uint8_t*>(this->ptr), this->len); }
+			constexpr inline str_view<uint8_t> bytes() const
+			{
+				auto byte_ptr = static_cast<const void*>(this->ptr);
+				return str_view<uint8_t>(static_cast<const uint8_t*>(byte_ptr), this->len);
+			}
 
 			value_type front() const { return this->ptr[0]; }
 			value_type back() const { return this->ptr[this->len - 1]; }
 
 			inline void clear() { this->ptr = 0; this->len = 0; }
 
+			template <auto e = Endian, typename std::enable_if_t<e == impl::endian::native, int> = 0>
 			inline value_type operator[] (size_t n) const { return this->ptr[n]; }
+
+			template <auto e = Endian, typename std::enable_if_t<
+				(e != impl::endian::native) && std::is_integral_v<value_type>,
+			int> = 0>
+			inline value_type operator[] (size_t n) const
+			{
+				return zst::byteswap(this->ptr[n]);
+			}
 
 			inline size_t find(value_type c) const { return this->find(str_view(&c, 1)); }
 			inline size_t find(str_view sv) const
@@ -269,9 +322,9 @@ namespace zst
 				return static_cast<size_t>(-1);
 			}
 
-			inline size_t find_first_of(str_view sv)
+			inline size_t find_first_of(str_view sv, size_t start = 0)
 			{
-				for(size_t i = 0; i < this->len; i++)
+				for(size_t i = start; i < this->len; i++)
 				{
 					for(value_type k : sv)
 					{
@@ -279,8 +332,33 @@ namespace zst
 							return i;
 					}
 				}
-
 				return static_cast<size_t>(-1);
+			}
+
+			inline size_t find_first_not_of(value_type k)
+			{
+				for(size_t i = 0; i < this->len; i++)
+				{
+					if(this->ptr[i] != k)
+						return i;
+				}
+				return static_cast<size_t>(-1);
+			}
+
+			[[nodiscard]] str_view trim_whitespace() const
+			{
+				auto copy = *this;
+				while(not copy.empty() && (copy[0] == value_type(' ') || copy[0] == value_type('\t') || copy[0] == value_type('\n') || copy[0] == value_type('\r')))
+				{
+					copy.remove_prefix(1);
+				}
+
+				while(not copy.empty() && (copy.back() == value_type(' ') || copy.back() == value_type('\t') || copy.back() == value_type('\n') || copy.back() == value_type('\r')))
+				{
+					copy.remove_suffix(1);
+				}
+
+				return copy;
 			}
 
 			[[nodiscard]] inline str_view drop(size_t n) const
@@ -300,6 +378,22 @@ namespace zst
 				return str_view(this->ptr + pos, cnt == static_cast<size_t>(-1)
 					? (this->len > pos ? this->len - pos : 0)
 					: cnt);
+			}
+
+			[[nodiscard]] inline str_view drop_until(value_type c) const
+			{
+				auto n = this->find(c);
+				if(n == size_t(-1))
+					return *this;
+				return this->drop(n);
+			}
+
+			[[nodiscard]] inline str_view take_until(value_type c) const
+			{
+				auto n = this->find(c);
+				if(n == size_t(-1))
+					return *this;
+				return this->take(n);
 			}
 
 			inline bool starts_with(str_view sv) const { return this->take(sv.size()) == sv; }
@@ -333,8 +427,8 @@ namespace zst
 
 				if(other.ptr == nullptr)
 					other.ptr = this->ptr;
-				else
-					assert(other.ptr + other.len == this->ptr);
+				else if(other.ptr + other.len != this->ptr)
+					impl::error_wrapper("invalid use of transfer_prefix -- views are not contiguous");
 
 				n = detail::min(n, this->len);
 				other.len += n;
@@ -342,16 +436,38 @@ namespace zst
 				return this->remove_prefix(n);
 			}
 
+			inline str_view& transfer_suffix(str_view& other, size_t n)
+			{
+				if(&other == this)
+					return *this;
+
+				if(other.ptr == nullptr)
+					other.ptr = this->ptr + this->len;
+				else if (this->ptr + this->len != other.ptr)
+					impl::error_wrapper("invalid use of transfer_suffix -- views are not contiguous");
+
+				n = detail::min(n, this->len);
+
+				other.len += n;
+				other.ptr -= n;
+
+				return this->remove_suffix(n);
+			}
 
 		#if ZST_USE_STD
-			str_view(const std::basic_string<value_type>& str) : ptr(str.data()), len(str.size()) { }
-			str_view(const std::basic_string_view<value_type>& sv) : ptr(sv.data()), len(sv.size()) { }
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
+			str_view(const std::basic_string<value_type>& s) : ptr(s.data()), len(s.size()) { }
 
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
+			str_view(std::basic_string_view<value_type> sv) : ptr(sv.data()), len(sv.size()) { }
+
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
 			inline std::basic_string_view<value_type> sv() const
 			{
 				return std::basic_string_view<value_type>(this->data(), this->size());
 			}
 
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
 			inline std::basic_string<value_type> str() const
 			{
 				return std::basic_string<value_type>(this->data(), this->size());
@@ -362,7 +478,7 @@ namespace zst
 			// this must appear inside the class body... see the comment below about these leaky macros.
 		#if defined(ZPR_USE_STD) || defined(ZPR_FREESTANDING)
 
-			template <typename T = value_type, typename = typename detail::enable_if<detail::is_same<T, char>::value>::type>
+			template <typename T = value_type, typename = typename std::enable_if_t<std::is_same_v<T, char>>>
 			operator zpr::tt::str_view() const
 			{
 				return zpr::tt::str_view(this->ptr, this->len);
@@ -371,17 +487,17 @@ namespace zst
 		#endif
 
 			// a little hacky, but a useful feature.
-			template <typename A = value_type, typename = typename detail::enable_if<detail::is_same<A, uint8_t>::value>::type>
+			template <typename A = value_type, typename = typename std::enable_if_t<std::is_same_v<A, uint8_t>>>
 			str_view<char> chars() const
 			{
 				return str_view<char>(reinterpret_cast<const char*>(this->ptr), this->len);
 			}
 
-			template <typename U>
-			str_view<U> cast() const
+			template <typename U, impl::endian E = Endian>
+			str_view<U, E> cast() const
 			{
 				static_assert(sizeof(value_type) % sizeof(U) == 0 || sizeof(U) % sizeof(value_type) == 0, "types are not castable");
-				return str_view<U>(reinterpret_cast<const U*>(this->ptr), (sizeof(value_type) * this->len) / sizeof(U));
+				return str_view<U, E>(reinterpret_cast<const U*>(this->ptr), (sizeof(value_type) * this->len) / sizeof(U));
 			}
 
 		private:
@@ -413,6 +529,32 @@ namespace zst
 
 			template <typename C>
 			inline bool operator!= (str_view<C> sv, std::basic_string_view<C> other) { return sv != str_view<C>(other); }
+
+
+			// for vector
+			template <typename T, auto E>
+			inline bool operator== (str_view<T,E> sv, const std::vector<T>& other)
+			{
+				return sv == str_view<T>(other.data(), other.size());
+			}
+
+			template <typename T, auto E>
+			inline bool operator== (const std::vector<T>& other, str_view<T,E> sv)
+			{
+				return sv == str_view<T>(other.data(), other.size());
+			}
+
+			template <typename T, auto E>
+			inline bool operator!= (str_view<T,E> sv, const std::vector<T>& other)
+			{
+				return sv != str_view<T>(other.data(), other.size());
+			}
+			template <typename T, auto E>
+			inline bool operator!= (const std::vector<T>& other, str_view<T,E> sv)
+			{
+				return sv != str_view<T>(other.data(), other.size());
+			}
+
 		#endif // ZST_USE_STD
 
 		template <typename C> inline const C* begin(const str_view<C>& sv) { return sv.begin(); }
@@ -422,8 +564,8 @@ namespace zst
 	using str_view = impl::str_view<char>;
 	using wstr_view = impl::str_view<char32_t>;
 
-	template <typename T>
-	using span = impl::str_view<T>;
+	template <typename T, impl::endian E = impl::endian::native>
+	using span = impl::str_view<T, E>;
 
 	using byte_span = span<uint8_t>;
 }
@@ -557,7 +699,7 @@ namespace zst
 				return *this;
 			}
 
-			template <typename T, typename A = value_type, typename = typename detail::enable_if<detail::is_same<A, uint8_t>::value>::type>
+			template <typename T, typename A = value_type, typename = typename std::enable_if_t<std::is_same_v<A, uint8_t>>>
 			inline buffer& append_bytes(const T& value)
 			{
 				this->expand(sizeof(T));
@@ -604,25 +746,157 @@ namespace zst
 
 
 
+namespace zst
+{
+	#if (__cplusplus >= 202000L)
+		#define ZST_NO_UNIQUE_ADDRESS [[no_unique_address]]
+	#else
+		#define ZST_NO_UNIQUE_ADDRESS
+	#endif
+
+	namespace impl
+	{
+		struct default_deleter
+		{
+			default_deleter() = default;
+			explicit default_deleter(void (*user_deleter)(const void*, size_t)) : m_user_deleter(user_deleter) { }
+
+			template <typename T>
+			void operator()(const T* ptr, size_t n)
+			{
+				if(m_user_deleter != nullptr)
+					m_user_deleter(ptr, n);
+				else
+					delete[] ptr;
+			}
+
+			void (*m_user_deleter)(const void*, size_t) = nullptr;
+		};
+	}
+
+	template <typename _ArrayType, typename _Deleter = impl::default_deleter,
+		typename std::enable_if_t<std::is_array_v<std::remove_reference_t<std::remove_cv_t<_ArrayType>>>, int> = 0>
+	struct unique_span
+	{
+		using _TPtr = std::decay_t<std::remove_reference_t<std::remove_cv_t<_ArrayType>>>;
+
+		static_assert(std::is_pointer_v<_TPtr>);
+		using _T = std::remove_pointer_t<_TPtr>;
+
+		template <typename D = _Deleter, typename std::enable_if_t<std::is_default_constructible_v<D>, int> = 0>
+		explicit unique_span(D del = _Deleter{})
+			: m_ptr(nullptr)
+			, m_size(0)
+			, m_deleter(static_cast<D&&>(del)) { }
+
+		template <typename D = _Deleter, typename std::enable_if_t<std::is_default_constructible_v<D>, int> = 0>
+		explicit unique_span(_T* ptr, size_t size, D del = _Deleter{})
+			: m_ptr(ptr)
+			, m_size(size)
+			, m_deleter(static_cast<D&&>(del)) { }
+
+		unique_span(const unique_span&) = delete;
+		unique_span& operator=(const unique_span&) = delete;
+
+		unique_span(unique_span&& other)
+			: m_ptr(other.m_ptr)
+			, m_size(other.m_size)
+			, m_deleter(static_cast<_Deleter&&>(other.m_deleter))
+		{
+			other.m_ptr = nullptr;
+			other.m_size = 0;
+		}
+
+		unique_span& operator=(unique_span&& other)
+		{
+			if(this == &other)
+				return *this;
+
+			m_ptr = other.m_ptr; other.m_ptr = nullptr;
+			m_size = other.m_size; other.m_size = 0;
+			m_deleter = static_cast<_Deleter&&>(other.m_deleter);
+			return *this;
+		}
+
+		~unique_span()
+		{
+			if(m_ptr != nullptr)
+				m_deleter(m_ptr, m_size);
+
+			m_ptr = nullptr;
+			m_size = 0;
+		}
+
+		bool operator==(decltype(nullptr) _) const { return m_ptr == nullptr; }
+		bool operator!=(decltype(nullptr) _) const { return m_ptr != nullptr; }
+
+		_T* get() { return m_ptr; }
+		const _T* get() const { return m_ptr; }
+
+		size_t size() const { return m_size; }
+		bool empty() const { return m_size == 0; }
+
+		_T& operator[](size_t n) { return m_ptr[n]; }
+		const _T& operator[](size_t n) const { return m_ptr[n]; }
+
+		zst::span<_T> span() const { return zst::span<_T>(m_ptr, m_size); }
+
+		_T* release()
+		{
+			auto ret = m_ptr;
+			m_ptr = nullptr;
+			return ret;
+		}
+
+	private:
+		_T* m_ptr;
+		size_t m_size;
+		ZST_NO_UNIQUE_ADDRESS _Deleter m_deleter;
+	};
+}
+
+
 
 namespace zst
 {
-	namespace impl
-	{
-		template <typename... Args>
-		[[noreturn]] void error_wrapper(const char* fmt, Args&&... args);
-	}
-
 	template <typename, typename>
 	struct Result;
 
 	namespace detail
 	{
-		template <typename T>
-		struct is_result : detail::false_type { };
+		template <typename ToUniquePtr, typename FromUniquePtr>
+		concept UniquePtrConvertible = requires(FromUniquePtr f)
+		{
+			typename FromUniquePtr::pointer;
+			typename FromUniquePtr::element_type;
+			typename FromUniquePtr::deleter_type;
 
-		template <typename T, typename U>
-		struct is_result<Result<T, U>> : detail::true_type { };
+			typename ToUniquePtr::pointer;
+			typename ToUniquePtr::element_type;
+			typename ToUniquePtr::deleter_type;
+
+			requires std::derived_from<
+				std::remove_pointer_t<typename FromUniquePtr::pointer>,
+				std::remove_pointer_t<typename ToUniquePtr::pointer>
+			>;
+
+			{ f.release() } -> std::same_as<typename FromUniquePtr::pointer>;
+		};
+
+		template <typename ToSharedPtr, typename FromSharedPtr>
+		concept SharedPtrConvertible = requires(FromSharedPtr f)
+		{
+			typename FromSharedPtr::element_type;
+			typename ToSharedPtr::element_type;
+
+			requires std::derived_from<
+				typename FromSharedPtr::element_type,
+				typename ToSharedPtr::element_type
+			>;
+
+			{ f.get() } -> std::same_as<typename FromSharedPtr::element_type*>;
+			{ f.use_count() } -> std::same_as<size_t>;
+		};
 	}
 
 	template <typename T>
@@ -713,10 +987,10 @@ namespace zst
 		}
 
 		template <typename T1 = T>
-		Result(Ok<T1>&& ok) : Result(tag_ok(), static_cast<T1&&>(ok.m_value)) { }
+		Result(Ok<T1>&& ok_) : Result(tag_ok(), static_cast<T1&&>(ok_.m_value)) { }
 
 		template <typename E1 = E>
-		Result(Err<E1>&& err) : Result(tag_err(), static_cast<E1&&>(err.m_error)) { }
+		Result(Err<E1>&& err_) : Result(tag_err(), static_cast<E1&&>(err_.m_error)) { }
 
 		Result(const Result& other)
 		{
@@ -770,7 +1044,7 @@ namespace zst
 		T& operator* () { this->assert_has_value(); return this->val; }
 		const T& operator* () const  { this->assert_has_value(); return this->val; }
 
-		operator bool() const { return this->state == STATE_VAL; }
+		explicit operator bool() const { return this->state == STATE_VAL; }
 		bool ok() const { return this->state == STATE_VAL; }
 		bool is_err() const { return this->state == STATE_ERR; }
 
@@ -781,10 +1055,10 @@ namespace zst
 		E& error() { this->assert_is_error(); return this->err; }
 
 		// enable implicit upcast to a base type
-		template <typename U, typename = std::enable_if_t<
-			std::is_pointer_v<T> && std::is_pointer_v<U>
+		template <typename U> requires(std::is_pointer_v<T>
+			&& std::is_pointer_v<U>
 			&& std::is_base_of_v<std::remove_pointer_t<U>, std::remove_pointer_t<T>>
-		>>
+		)
 		operator Result<U, E> () const
 		{
 			using R = Result<U, E>;
@@ -793,6 +1067,28 @@ namespace zst
 
 			impl::error_wrapper("invalid state of Result");
 		}
+
+		template <detail::UniquePtrConvertible<T> U>
+		operator Result<U, E>() &&
+		{
+			using R = Result<U, E>;
+			if(state == STATE_VAL)  return R(typename R::tag_ok{}, U(this->val.release()));
+			if(state == STATE_ERR)  return R(typename R::tag_err{}, static_cast<E&&>(this->err));
+
+			impl::error_wrapper("invalid state of Result");
+		}
+
+		template <detail::SharedPtrConvertible<T> U>
+		operator Result<U, E>() &&
+		{
+			using R = Result<U, E>;
+			if(state == STATE_VAL)  return R(typename R::tag_ok{}, U(static_cast<T&&>(this->val)));
+			if(state == STATE_ERR)  return R(typename R::tag_err{}, static_cast<E&&>(this->err));
+
+			impl::error_wrapper("invalid state of Result");
+		}
+
+
 
 		const T& expect(str_view msg) const
 		{
@@ -807,7 +1103,7 @@ namespace zst
 		}
 
 		template <typename Fn>
-		auto map(Fn&& fn) -> Result<decltype(fn(detail::declval<T>())), E> const
+		auto map(Fn&& fn) const -> Result<decltype(fn(std::declval<T>())), E>
 		{
 			using Res = Result<decltype(fn(this->val)), E>;
 			if constexpr (std::is_same_v<decltype(fn(this->val)), void>)
@@ -823,7 +1119,7 @@ namespace zst
 		}
 
 		template <typename Fn>
-		auto flatmap(Fn&& fn) -> decltype(fn(detail::declval<T>())) const
+		auto flatmap(Fn&& fn) const -> decltype(fn(std::declval<T>()))
 		{
 			using Res = decltype(fn(this->val));
 
@@ -831,6 +1127,17 @@ namespace zst
 			else            return Res(typename Res::tag_err{}, this->err);
 		}
 
+		Result<void, E> remove_value() const
+		{
+			using Res = Result<void, E>;
+			if(this->ok())  return Res(typename Res::tag_ok{});
+			else            return Res(typename Res::tag_err{}, this->err);
+		}
+
+		Err<E> to_err() { this->assert_is_error(); this->state = STATE_NONE; return Err(static_cast<E&&>(this->err)); }
+
+		E take_error() { this->assert_is_error(); this->state = STATE_NONE; return static_cast<E&&>(this->err); }
+		T take_value() { this->assert_has_value(); this->state = STATE_NONE; return static_cast<T&&>(this->val); }
 
 	private:
 		inline void assert_has_value() const
@@ -872,12 +1179,18 @@ namespace zst
 		using value_type = void;
 		using error_type = E;
 
+		struct tag_ok { };
+		struct tag_err { };
+
 		Result() : state(STATE_VAL) { }
 
 		Result(Ok<void>&& ok) : Result() { (void) ok; }
 
 		template <typename E1 = E>
-		Result(Err<E1>&& err) : state(STATE_ERR), err(static_cast<E1&&>(err.m_error)) { }
+		Result(Err<E1>&& err_) : state(STATE_ERR), err(static_cast<E1&&>(err_.m_error)) { }
+
+		Result([[maybe_unused]] tag_ok _) : state(STATE_VAL) { }
+		Result([[maybe_unused]] tag_err _, const E& err_) : state(STATE_ERR), err(err_) { }
 
 
 		Result(const Result& other)
@@ -920,12 +1233,15 @@ namespace zst
 			return *this;
 		}
 
-		operator bool() const { return this->state == STATE_VAL; }
+		explicit operator bool() const { return this->state == STATE_VAL; }
 		bool ok() const { return this->state == STATE_VAL; }
 		bool is_err() const { return this->state == STATE_ERR; }
 
 		const E& error() const { this->assert_is_error(); return this->err; }
 		E& error() { this->assert_is_error(); return this->err; }
+
+		Err<E> to_err() { this->assert_is_error(); return Err(static_cast<E&&>(this->err)); }
+		E take_error() { this->assert_is_error(); this->state = STATE_NONE; return static_cast<E&&>(this->err); }
 
 		void expect(zst::str_view msg) const
 		{
@@ -951,7 +1267,7 @@ namespace zst
 		}
 
 		template <typename Fn>
-		auto map(Fn&& fn) -> Result<decltype(fn()), E> const
+		auto map(Fn&& fn) const -> Result<decltype(fn()), E>
 		{
 			using Res = Result<decltype(fn()), E>;
 			if(this->ok())  return Res(typename Res::tag_ok{}, fn());
@@ -959,7 +1275,7 @@ namespace zst
 		}
 
 		template <typename Fn>
-		auto flatmap(Fn&& fn) -> decltype(fn()) const
+		auto flatmap(Fn&& fn) const -> decltype(fn())
 		{
 			using Res = decltype(fn());
 
@@ -967,6 +1283,13 @@ namespace zst
 			else            return Res(typename Res::tag_err{}, this->err);
 		}
 
+		template <typename T>
+		Result<T, E> add_value(T&& value) const
+		{
+			using Res = Result<T, E>;
+			if(this->ok())  return Res(typename Res::tag_ok{}, static_cast<T&&>(value));
+			else            return Res(typename Res::tag_err{}, this->err);
+		}
 
 	private:
 		inline void assert_is_error() const
@@ -978,6 +1301,166 @@ namespace zst
 		int state = 0;
 		E err;
 	};
+
+	template <typename E>
+	using Failable = Result<void, E>;
+
+
+
+
+
+	// TODO: see if we can share code between Either and Result
+	template <typename T>
+	struct Left
+	{
+		Left() = default;
+		~Left() = default;
+		Left(Left&&) = default;
+		Left(const Left&) = default;
+
+		Left(const T& value) : m_value(value) { }
+		Left(T&& value) : m_value(static_cast<T&&>(value)) { }
+
+		template <typename... Args>
+		Left(Args&&... args) : m_value(static_cast<Args&&>(args)...) { }
+
+		template <typename, typename> friend struct Either;
+
+	private:
+		T m_value;
+	};
+
+	template <typename T>
+	struct Right
+	{
+		Right() = default;
+		~Right() = default;
+		Right(Right&&) = default;
+		Right(const Right&) = default;
+
+		Right(const T& value) : m_value(value) { }
+		Right(T&& value) : m_value(static_cast<T&&>(value)) { }
+
+		template <typename... Args>
+		Right(Args&&... args) : m_value(static_cast<Args&&>(args)...) { }
+
+		template <typename, typename> friend struct Either;
+
+	private:
+		T m_value;
+	};
+
+	template <typename LT, typename RT>
+	struct Either
+	{
+	private:
+		static constexpr int STATE_NONE  = 0;
+		static constexpr int STATE_LEFT  = 1;
+		static constexpr int STATE_RIGHT = 2;
+
+		struct tag_left {};
+		struct tag_right {};
+
+		Either(tag_left _, const LT& x)  : m_state(STATE_LEFT), m_left(x) { (void) _; }
+		Either(tag_left _, LT&& x)       : m_state(STATE_LEFT), m_left(static_cast<LT&&>(x)) { (void) _; }
+
+		Either(tag_right _, const RT& x) : m_state(STATE_RIGHT), m_right(x) { (void) _; }
+		Either(tag_right _, RT&& x)      : m_state(STATE_RIGHT), m_right(static_cast<RT&&>(x)) { (void) _; }
+
+	public:
+		using left_type = LT;
+		using right_type = RT;
+
+		~Either()
+		{
+			if(m_state == STATE_LEFT)   m_left.~LT();
+			if(m_state == STATE_RIGHT)  m_right.~RT();
+		}
+
+		template <typename T1 = LT>
+		Either(Left<T1>&& x) : Either(tag_left(), static_cast<T1&&>(x.m_value)) { }
+
+		template <typename T1 = RT>
+		Either(Right<T1>&& x) : Either(tag_right(), static_cast<T1&&>(x.m_value)) { }
+
+		Either(const Either& other)
+		{
+			m_state = other.m_state;
+			if(m_state == STATE_LEFT)  new(&m_left) LT(other.m_left);
+			if(m_state == STATE_RIGHT) new(&m_right) RT(other.m_right);
+		}
+
+		Either(Either&& other)
+		{
+			m_state = other.m_state;
+			other.m_state = STATE_NONE;
+			if(m_state == STATE_LEFT)  new(&m_left) LT(static_cast<LT&&>(other.m_left));
+			if(m_state == STATE_RIGHT) new(&m_right) RT(static_cast<RT&&>(other.m_right));
+		}
+
+		Either& operator=(const Either& other)
+		{
+			if(this != &other)
+			{
+				if(m_state == STATE_LEFT)  m_left.~LT();
+				if(m_state == STATE_RIGHT) m_right.~RT();
+
+				m_state = other.m_state;
+				if(m_state == STATE_LEFT) new(&m_left) LT(other.m_left);
+				if(m_state == STATE_RIGHT) new(&m_right) RT(other.m_right);
+			}
+			return *this;
+		}
+
+		Either& operator=(Either&& other)
+		{
+			if(this != &other)
+			{
+				if(m_state == STATE_LEFT) m_left.~LT();
+				if(m_state == STATE_RIGHT) m_right.~RT();
+
+				m_state = other.m_state;
+				other.m_state = STATE_NONE;
+				if(m_state == STATE_LEFT) new(&m_left) LT(static_cast<LT&&>(other.m_left));
+				if(m_state == STATE_RIGHT) new(&m_right) RT(static_cast<RT&&>(other.m_right));
+			}
+			return *this;
+		}
+
+		bool is_left() const { return m_state == STATE_LEFT; }
+		bool is_right() const { return m_state == STATE_RIGHT; }
+
+		const LT& left() const { this->assert_is_left(); return m_left; }
+		const RT& right() const { this->assert_is_right(); return m_right; }
+
+		LT& left()  { this->assert_is_left(); return m_left; }
+		RT& right() { this->assert_is_right(); return m_right; }
+
+		LT take_left() { this->assert_is_left(); m_state = STATE_NONE; return static_cast<LT&&>(m_left); }
+		RT take_right() { this->assert_is_right(); m_state = STATE_NONE; return static_cast<RT&&>(m_right); }
+
+	private:
+		inline void assert_is_left() const
+		{
+			if(m_state != STATE_LEFT)
+				impl::error_wrapper("expected Left, was Right!");
+		}
+
+		inline void assert_is_right() const
+		{
+			if(m_state != STATE_RIGHT)
+				impl::error_wrapper("expected Right, was Left!");
+		}
+
+		int m_state = 0;
+		union {
+			LT m_left;
+			RT m_right;
+		};
+
+		template <typename, typename> friend struct Either;
+	};
+
 }
 
 
@@ -990,11 +1473,13 @@ namespace zst
 
 namespace zst
 {
+	#if (ZST_USE_STD == 1) && (ZST_FREESTANDING == 0)
 	template <typename... Args>
 	Err<std::string> ErrFmt(const char* fmt, Args&&... args)
 	{
 		return Err<std::string>(zpr::sprint(fmt, static_cast<Args&&>(args)...));
 	}
+	#endif
 
 	namespace impl
 	{
@@ -1012,7 +1497,7 @@ namespace zpr
 {
 	// make sure that these are only defined if print_formatter is a complete type.
 	template <typename T>
-	struct print_formatter<zst::Ok<T>, typename zst::detail::enable_if<detail::has_formatter_v<T>>::type>
+	struct print_formatter<zst::Ok<T>, typename std::enable_if_t<detail::has_formatter_v<T>>>
 	{
 		template <typename Cb>
 		void print(const zst::Ok<T>& ok, Cb&& cb, format_args args)
@@ -1024,7 +1509,7 @@ namespace zpr
 	};
 
 	template <typename E>
-	struct print_formatter<zst::Err<E>, typename zst::detail::enable_if<detail::has_formatter_v<E>>::type>
+	struct print_formatter<zst::Err<E>, typename std::enable_if_t<detail::has_formatter_v<E>>>
 	{
 		template <typename Cb>
 		void print(const zst::Err<E>& err, Cb&& cb, format_args args)
@@ -1037,7 +1522,7 @@ namespace zpr
 
 	template <typename E, typename T>
 	struct print_formatter<zst::Result<T, E>,
-		typename zst::detail::enable_if<detail::has_formatter_v<T> && detail::has_formatter_v<E>>::type
+		typename std::enable_if_t<detail::has_formatter_v<T> && detail::has_formatter_v<E>>
 	>
 	{
 		template <typename Cb>
@@ -1065,7 +1550,7 @@ namespace zpr
 namespace zst::impl
 {
 	template <typename... Args>
-	[[noreturn]] void error_wrapper(const char* fmt, Args&&... args)
+	[[noreturn]] void error_wrapper([[maybe_unused]] const char* fmt, [[maybe_unused]] Args&&... args)
 	{
 		constexpr const char msg[] = "internal error (no zpr, cannot elaborate)";
 		zst::error_and_exit(msg, sizeof(msg) - 1);
@@ -1074,11 +1559,47 @@ namespace zst::impl
 
 #endif
 
+constexpr inline zst::str_view operator""_sv(const char* s, size_t n)
+{
+	return zst::str_view(s, n);
+}
+
+constexpr inline zst::byte_span operator""_bs(const char* s, size_t n)
+{
+	return zst::str_view(s, n).bytes();
+}
+
 
 
 /*
 	Version History
 	===============
+
+	2.0.0 - 26/04/2023
+	------------------
+	- switch to C++20, partial conversion to concepts
+	- add automatic derived -> base casting for Result<std::unique_ptr<T>>
+	- add Either<L, R>
+
+
+
+	1.4.3 - 18/01/2023
+	------------------
+	- add endianness support to str_view
+	- add transfer_suffix
+	- add unique_span
+	- add _bs and _sv literals
+	- add `drop_until` and `take_until` for str_view
+
+
+	1.4.2 - 26/09/2022
+	------------------
+	- fix wrong placement of const in `map` and `flatmap`
+	- add `add_value` function to Result<void>
+	- add `remove_value` function to Result<T>
+	- add Failable type alias
+	- fix missing includes, and only define `ErrFmt` in non-freestanding mode
+
 
 	1.4.1 - 10/08/2022
 	------------------

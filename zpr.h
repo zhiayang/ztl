@@ -42,7 +42,7 @@
 */
 
 /*
-    Version 2.7.7
+    Version 2.7.8
     =============
 
 
@@ -127,7 +127,7 @@
     seen from the builtin formatters, taking note to follow the signatures.
 
     A key point to note is that you can specialise both for the 'raw' type -- ie. you can specialise for T&,
-    and also for T; the non-decayed specialisation is preferred if both exist.
+   and also for T; the non-decayed specialisation is preferred if both exist.
 
     (NB: the reason for this is so that we can support reference to array of char, ie. char (&)[N])
 
@@ -475,7 +475,7 @@ namespace zpr
 			__fmtarg_w& operator= (__fmtarg_w&&) = delete;
 			__fmtarg_w& operator= (const __fmtarg_w&) = delete;
 
-			__fmtarg_w(_Type&& x, int width) : arg(static_cast<_Type&&>(x)), width(width) { }
+			__fmtarg_w(_Type&& x, int w) : arg(static_cast<_Type&&>(x)), width(w) { }
 
 			_Type arg;
 			int width;
@@ -489,7 +489,7 @@ namespace zpr
 			__fmtarg_p& operator= (__fmtarg_p&&) = delete;
 			__fmtarg_p& operator= (const __fmtarg_p&) = delete;
 
-			__fmtarg_p(_Type&& x, int prec) : arg(static_cast<_Type&&>(x)), prec(prec) { }
+			__fmtarg_p(_Type&& x, int p) : arg(static_cast<_Type&&>(x)), prec(p) { }
 
 			_Type arg;
 			int prec;
@@ -503,7 +503,7 @@ namespace zpr
 			__fmtarg_wp& operator= (__fmtarg_wp&&) = delete;
 			__fmtarg_wp& operator= (const __fmtarg_wp&) = delete;
 
-			__fmtarg_wp(_Type&& x, int width, int prec) : arg(static_cast<_Type&&>(x)), prec(prec), width(width) { }
+			__fmtarg_wp(_Type&& x, int w, int p) : arg(static_cast<_Type&&>(x)), prec(p), width(w) { }
 
 			_Type arg;
 			int prec;
@@ -554,7 +554,7 @@ namespace zpr
 		struct __forward_helper
 		{
 			template <typename... Xs>
-			ZPR_ALWAYS_INLINE __forward_helper(tt::str_view fmt, Xs&&... xs) : fmt(static_cast<tt::str_view&&>(fmt))
+			ZPR_ALWAYS_INLINE __forward_helper(tt::str_view fmtstr, Xs&&... xs) : fmt(static_cast<tt::str_view&&>(fmtstr))
 			{
 				size_t idx = 0;
 				((values[idx++] = &xs), ...);
@@ -592,14 +592,30 @@ namespace zpr
 
 
 
+		template <typename _Type, typename = void>
+		struct is_iterable_by_adl : tt::false_type { };
+
+		template <typename _Type>
+		struct is_iterable_by_adl<_Type, tt::void_t<
+			decltype(begin(tt::declval<_Type&>())), decltype(end(tt::declval<_Type&>()))
+		>> : tt::true_type { };
+
+		template <typename _Type, typename = void>
+		struct is_iterable_by_member : tt::false_type { };
+
+		template <typename _Type>
+		struct is_iterable_by_member<_Type, tt::void_t<
+			decltype(tt::declval<_Type&>().begin()), decltype(tt::declval<_Type&>().end())
+		>> : tt::true_type { };
 
 		template <typename _Type, typename = void>
 		struct is_iterable : tt::false_type { };
 
 		template <typename _Type>
-		struct is_iterable<_Type, tt::void_t<
-			decltype(begin(tt::declval<_Type&>())), decltype(end(tt::declval<_Type&>()))
-		>> : tt::true_type { };
+		struct is_iterable<_Type, typename tt::enable_if<
+			is_iterable_by_adl<_Type>::value ||
+			is_iterable_by_member<_Type>::value
+		>::type> : tt::true_type { };
 
 		// a bit hacky, but force this to be iterable.
 		template <>
@@ -1483,7 +1499,7 @@ namespace zpr
 		template <size_t Limit, bool Newline>
 		struct file_appender
 		{
-			file_appender(FILE* fd, size_t& written) : fd(fd), written(written) { buf[0] = '\n'; }
+			file_appender(FILE* fd_, size_t& written_) : fd(fd_), written(written_) { buf[0] = '\n'; }
 			~file_appender() { flush(true); }
 
 			file_appender(file_appender&&) = delete;
@@ -1573,7 +1589,7 @@ namespace zpr
 				"incompatible callback passed (signature must be compatible with [const char*, size_t])");
 
 
-			callback_appender(_Fn* callback, bool newline) : len(0), newline(newline), callback(callback) { }
+			callback_appender(_Fn* callback_, bool newline_) : len(0), newline(newline_), callback(callback_) { }
 			~callback_appender() { if(newline) { (*callback)("\n", 1); } }
 
 			ZPR_ALWAYS_INLINE void reserve(size_t) {}
@@ -1596,7 +1612,7 @@ namespace zpr
 				this->len += static_cast<size_t>(end - begin);
 			}
 
-			ZPR_ALWAYS_INLINE void operator() (const char* begin, size_t len) { (*callback)(begin, len); this->len += len; }
+			ZPR_ALWAYS_INLINE void operator() (const char* begin, size_t n) { (*callback)(begin, n); this->len += n; }
 			ZPR_ALWAYS_INLINE void operator() (char c, size_t n)
 			{
 				for(size_t i = 0; i < n; i++)
@@ -1620,7 +1636,7 @@ namespace zpr
 
 		struct buffer_appender
 		{
-			buffer_appender(char* buf, size_t cap) : buf(buf), cap(cap), len(0) { }
+			buffer_appender(char* buf_, size_t cap_) : buf(buf_), cap(cap_), len(0) { }
 
 			ZPR_ALWAYS_INLINE void reserve(size_t) {}
 
@@ -1650,9 +1666,9 @@ namespace zpr
 				this->len += l;
 			}
 
-			ZPR_ALWAYS_INLINE void operator() (const char* begin, size_t len)
+			ZPR_ALWAYS_INLINE void operator() (const char* begin, size_t n)
 			{
-				auto l = this->remaining(len);
+				auto l = this->remaining(n);
 				memmove(&this->buf[this->len], begin, l);
 				this->len += l;
 			}
@@ -1996,8 +2012,8 @@ namespace zpr
 			static_assert(returns_value, "'zpr::with' can only be used with callbacks returning a string-like value");
 
 			template <typename __Func, typename __Type>
-			__with_helper_ret(__Func&& printer, __Type&& value) :
-				printer(static_cast<__Func&&>(printer)), value(static_cast<__Type&&>(value)) { }
+			__with_helper_ret(__Func&& printer_, __Type&& value_) :
+				printer(static_cast<__Func&&>(printer_)), value(static_cast<__Type&&>(value_)) { }
 
 			_Func&& printer;
 			_Type&& value;
@@ -2068,6 +2084,20 @@ namespace zpr
 
 
 	// formatters lie here.
+	// when user has member zpr_print method, we make a formatter that calls their zpr_print for them.
+	template <typename _Type>
+	struct print_formatter<_Type,
+	                       // SFINAE for the concept { x.zpr_print(cb, args) };
+	                       tt::void_t<decltype(tt::declval<_Type>()
+	                                           .zpr_print(tt::declval<detail::string_appender>(),
+	                                                      tt::declval<format_args>()))>> {
+		template <typename __Type, typename _Cb>
+		ZPR_ALWAYS_INLINE void print(__Type&& x, _Cb&& cb, format_args args)
+		{
+			std::forward<__Type>(x).zpr_print(std::forward<_Cb>(cb), args);
+		}
+	};
+
 	// because we use explicit template args for the vprint stuff, it can only come after we
 	// specialise all the print_formatters for the builtin types.
 	template <typename _Type>
@@ -2660,6 +2690,12 @@ namespace zpr
 
     Version History
     ===============
+
+	2.7.8 - 26/04/2023
+	------------------
+	- Fix variable shadowing warnings
+	- Improved detection of iterable containers
+
 
     2.7.7 - 27/10/2022
     ------------------
