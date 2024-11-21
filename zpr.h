@@ -42,8 +42,8 @@
 */
 
 /*
-    Version 2.7.9
-    =============
+    Version 2.7.11
+    ==============
 
 
 
@@ -249,8 +249,8 @@
 
 
 #if !ZPR_FREESTANDING
-	#include <cstdio>
-	#include <cstring>
+	#include <stdio.h>
+	#include <string.h>
 #else
 	#if defined(ZPR_USE_STD)
 		#undef ZPR_USE_STD
@@ -1346,6 +1346,25 @@ namespace zpr
 			});
 		}
 
+		template <typename _CallbackFn>
+		ZPR_ALWAYS_INLINE void flush_format_string(_CallbackFn& cb, const char* fmt, size_t len)
+		{
+			for(size_t i = 0; i < len; i++)
+			{
+				if(fmt[i] == '{' || fmt[i] == '}')
+				{
+					if(i + i < len && fmt[i] == fmt[i + 1])
+						cb(&fmt[i++], 1);
+					else
+						cb(&fmt[i], 1);
+				}
+				else
+				{
+					cb(&fmt[i], 1);
+				}
+			}
+		}
+
 
 		/*
 			Print to the specified callback function. This should be used in user-defined print_formatters if
@@ -1369,7 +1388,7 @@ namespace zpr
 			(skip_fmts<_CallbackFn, _Types&&>(&st, cb, static_cast<_Types&&>(args)), ...);
 
 			// flush
-			cb(st.beg, static_cast<size_t>(st.fmtend - st.beg));
+			flush_format_string(cb, st.beg, static_cast<size_t>(st.fmtend - st.beg));
 		}
 
 
@@ -1387,7 +1406,7 @@ namespace zpr
 			(skip_fmts<_CallbackFn, _Types&&, true>(&st, cb, idx < num_args ? args[idx++] : nullptr), ...);
 
 			// flush
-			cb(st.beg, static_cast<size_t>(st.fmtend - st.beg));
+			flush_format_string(cb, st.beg, static_cast<size_t>(st.fmtend - st.beg));
 		}
 
 	#if ZPR_USE_STD
@@ -2089,12 +2108,12 @@ namespace zpr
 	struct print_formatter<_Type,
 	                       // SFINAE for the concept { x.zpr_print(cb, args) };
 	                       tt::void_t<decltype(tt::declval<_Type>()
-	                                           .zpr_print(tt::declval<detail::string_appender>(),
+	                                           .zpr_print(tt::declval<detail::buffer_appender>(),
 	                                                      tt::declval<format_args>()))>> {
 		template <typename __Type, typename _Cb>
 		ZPR_ALWAYS_INLINE void print(__Type&& x, _Cb&& cb, format_args args)
 		{
-			std::forward<__Type>(x).zpr_print(std::forward<_Cb>(cb), args);
+			static_cast<__Type&&>(x).zpr_print(static_cast<_Cb&&>(cb), args);
 		}
 	};
 
@@ -2207,8 +2226,13 @@ namespace zpr
 					}
 
 					if('A' <= args.specifier && args.specifier <= 'Z')
+					{
 						for(size_t i = 0; i < digits_len; i++)
-							digits[i] = static_cast<char>(digits[i] - 0x20);
+						{
+							if('a' <= digits[i] && digits[i] <= 'z')
+								digits[i] = static_cast<char>(digits[i] - 0x20);
+						}
+					}
 				}
 
 				char prefix[4] = { 0 };
@@ -2691,9 +2715,19 @@ namespace zpr
     Version History
     ===============
 
-	2.7.9 - 31/01/2024
-	------------------
-	- Fix precision when printing floats with '%g' specifier
+    2.7.11 - 14/11/2024
+    -------------------
+    - Fix printing of uppercase hex integers
+
+
+    2.7.10 - 21/09/2024
+    -------------------
+    - Fix printing of trailing {s and }s after the last format argument
+
+
+    2.7.9 - 31/01/2024
+    ------------------
+    - Fix precision when printing floats with '%g' specifier
 
 
 	2.7.8 - 26/04/2023
