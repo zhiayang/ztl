@@ -16,7 +16,7 @@
 */
 
 /*
-    Version 2.0.1
+    Version 2.0.2
     =============
 
 
@@ -31,8 +31,9 @@
 
     - ZST_USE_STD
         this is *TRUE* by default. controls whether or not STL type interfaces
-        are used; with it, str_view gains implicit constructors accepting std::string
-        and std::string_view, as well as methods to convert to them (sv() and str()).
+        are used; with it, str_view gains implicit constructors accepting
+   std::string and std::string_view, as well as methods to convert to them (sv()
+   and str()).
 
     - ZST_FREESTANDING
         this is *FALSE by default; controls whether or not a standard library
@@ -42,8 +43,8 @@
 
     - ZST_HAVE_BUFFER
         this is *TRUE* by default. controls whether the zst::buffer<T> type is
-        available. If you do not have operator new[] and want to avoid link errors,
-        then set this to false.
+        available. If you do not have operator new[] and want to avoid link
+   errors, then set this to false.
 
 
     Note that ZST_FREESTANDING implies ZST_USE_STD = 0.
@@ -232,7 +233,7 @@ namespace zst
 			constexpr str_view(const value_type* p, size_t l) : ptr(p), len(l) { }
 
 			template <size_t N>
-			constexpr str_view(const value_type (&s)[N]) : ptr(s), len(N - 1) { }
+			constexpr str_view(const value_type (&s)[N]) : ptr(s), len(N - std::is_same_v<char, value_type> ? 1 : 0) { }
 
 			template <typename T, typename = std::enable_if_t<
 				std::is_same_v<char, value_type> &&
@@ -1575,6 +1576,11 @@ constexpr inline zst::byte_span operator""_bs(const char* s, size_t n)
 /*
     Version History
     ===============
+
+    2.0.2 - 24/12/2024
+    ------------------
+    - Fix erroneous N-1 length accounting for reference-to-array constructor for str_view for non-char cases
+
 
     2.0.1 - 31/07/2023
     ------------------
