@@ -16,7 +16,7 @@
 */
 
 /*
-    Version 2.0.3
+    Version 2.0.4
     =============
 
 
@@ -150,6 +150,12 @@ namespace zst
 	namespace detail
 	{
 		template <typename T> T min(T a, T b) { return a < b ? a : b;}
+
+		template <typename T, typename... Ts>
+		using is_same_as_any = std::disjunction<std::is_same<T, Ts>...>;
+
+		template <typename T, typename... Ts>
+		constexpr bool is_same_as_any_v = is_same_as_any<T, Ts...>::value;
 	}
 
 	namespace impl
@@ -235,16 +241,19 @@ namespace zst
 			template <size_t N>
 			constexpr str_view(const value_type (&s)[N]) : ptr(s), len(N - (std::is_same_v<char, value_type> ? 1 : 0)) { }
 
-			template <typename T, typename = std::enable_if_t<
-				std::is_same_v<char, value_type> &&
-				(std::is_same_v<char*, T> || std::is_same_v<const char*, T>)
-			>>
+			template <typename T, typename std::enable_if_t<
+				(std::is_same_v<value_type, char> || std::is_same_v<value_type, const char>) &&
+				(std::is_same_v<char*, T> || std::is_same_v<const char*, T>), int> = 0>
 			constexpr str_view(T s) : ptr(s), len(strlen(s)) { }
 
 			constexpr str_view(str_view&&) = default;
 			constexpr str_view(const str_view&) = default;
 			constexpr str_view& operator= (str_view&&) = default;
 			constexpr str_view& operator= (const str_view&) = default;
+
+			constexpr inline bool operator== (const value_type* other) const requires(std::same_as<value_type, char>) {
+				return *this == str_view(other);
+			}
 
 			constexpr inline bool operator== (const str_view& other) const
 			{
@@ -457,19 +466,19 @@ namespace zst
 			}
 
 		#if ZST_USE_STD
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && std::is_same_v<T, char>, int> = 0>
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && detail::is_same_as_any_v<T, char, char8_t, char16_t, char32_t>, int> = 0>
 			str_view(const std::basic_string<T>& s) : ptr(s.data()), len(s.size()) { }
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && std::is_same_v<T, char>, int> = 0>
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && detail::is_same_as_any_v<T, char, char8_t, char16_t, char32_t>, int> = 0>
 			str_view(std::basic_string_view<T> sv) : ptr(sv.data()), len(sv.size()) { }
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && std::is_same_v<T, char>, int> = 0>
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && detail::is_same_as_any_v<T, char, char8_t, char16_t, char32_t>, int> = 0>
 			inline std::basic_string_view<T> sv() const
 			{
 				return std::basic_string_view<value_type>(this->data(), this->size());
 			}
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && std::is_same_v<T, char>, int> = 0>
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && detail::is_same_as_any_v<T, char, char8_t, char16_t, char32_t>, int> = 0>
 			inline std::basic_string<T> str() const
 			{
 				return std::basic_string<value_type>(this->data(), this->size());
@@ -1441,6 +1450,9 @@ namespace zst
 		LT take_left() { this->assert_is_left(); m_state = STATE_NONE; return static_cast<LT&&>(m_left); }
 		RT take_right() { this->assert_is_right(); m_state = STATE_NONE; return static_cast<RT&&>(m_right); }
 
+		const LT* maybe_left() const { if(this->is_left()) return &m_left; else return nullptr; }
+		const RT* maybe_right() const { if(this->is_right()) return &m_right; else return nullptr; }
+
 	private:
 		inline void assert_is_left() const
 		{
@@ -1576,6 +1588,11 @@ constexpr inline zst::byte_span operator""_bs(const char* s, size_t n)
 /*
     Version History
     ===============
+
+    2.0.4 - 06/02/2025
+    ------------------
+    - Fix more str_view brokenness
+
 
     2.0.3 - 04/02/2025
     ------------------
