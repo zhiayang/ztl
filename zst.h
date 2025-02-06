@@ -16,7 +16,7 @@
 */
 
 /*
-    Version 2.0.2
+    Version 2.0.3
     =============
 
 
@@ -233,7 +233,7 @@ namespace zst
 			constexpr str_view(const value_type* p, size_t l) : ptr(p), len(l) { }
 
 			template <size_t N>
-			constexpr str_view(const value_type (&s)[N]) : ptr(s), len(N - std::is_same_v<char, value_type> ? 1 : 0) { }
+			constexpr str_view(const value_type (&s)[N]) : ptr(s), len(N - (std::is_same_v<char, value_type> ? 1 : 0)) { }
 
 			template <typename T, typename = std::enable_if_t<
 				std::is_same_v<char, value_type> &&
@@ -457,20 +457,20 @@ namespace zst
 			}
 
 		#if ZST_USE_STD
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
-			str_view(const std::basic_string<value_type>& s) : ptr(s.data()), len(s.size()) { }
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && std::is_same_v<T, char>, int> = 0>
+			str_view(const std::basic_string<T>& s) : ptr(s.data()), len(s.size()) { }
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
-			str_view(std::basic_string_view<value_type> sv) : ptr(sv.data()), len(sv.size()) { }
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && std::is_same_v<T, char>, int> = 0>
+			str_view(std::basic_string_view<T> sv) : ptr(sv.data()), len(sv.size()) { }
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
-			inline std::basic_string_view<value_type> sv() const
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && std::is_same_v<T, char>, int> = 0>
+			inline std::basic_string_view<T> sv() const
 			{
 				return std::basic_string_view<value_type>(this->data(), this->size());
 			}
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
-			inline std::basic_string<value_type> str() const
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && std::is_same_v<T, char>, int> = 0>
+			inline std::basic_string<T> str() const
 			{
 				return std::basic_string<value_type>(this->data(), this->size());
 			}
@@ -647,8 +647,8 @@ namespace zst
 			inline value_type* data() { return this->mem; }
 			inline const value_type* data() const { return this->mem; }
 
-			inline const value_type* begin() const { return this->ptr; }
-			inline const value_type* end() const { return this->ptr + this->len; }
+			inline const value_type* begin() const { return this->mem; }
+			inline const value_type* end() const { return this->mem + this->len; }
 
 			inline byte_span bytes() const
 			{
@@ -1576,6 +1576,11 @@ constexpr inline zst::byte_span operator""_bs(const char* s, size_t n)
 /*
     Version History
     ===============
+
+    2.0.3 - 04/02/2025
+    ------------------
+    - Fix Wparentheses warning
+
 
     2.0.2 - 24/12/2024
     ------------------
