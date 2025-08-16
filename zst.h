@@ -16,7 +16,7 @@
 */
 
 /*
-    Version 2.0.6
+    Version 2.2.1
     =============
 
 
@@ -31,9 +31,8 @@
 
     - ZST_USE_STD
         this is *TRUE* by default. controls whether or not STL type interfaces
-        are used; with it, str_view gains implicit constructors accepting
-   std::string and std::string_view, as well as methods to convert to them (sv()
-   and str()).
+        are used; with it, str_view gains implicit constructors accepting std::string
+        and std::string_view, as well as methods to convert to them (sv() and str()).
 
     - ZST_FREESTANDING
         this is *FALSE by default; controls whether or not a standard library
@@ -43,8 +42,8 @@
 
     - ZST_HAVE_BUFFER
         this is *TRUE* by default. controls whether the zst::buffer<T> type is
-        available. If you do not have operator new[] and want to avoid link
-   errors, then set this to false.
+        available. If you do not have operator new[] and want to avoid link errors,
+        then set this to false.
 
 
     Note that ZST_FREESTANDING implies ZST_USE_STD = 0.
@@ -107,8 +106,8 @@
 #endif
 
 #if !ZST_FREESTANDING && ZST_USE_STD
-	#include <string>
 	#include <vector>
+	#include <string>
 	#include <string_view>
 
 	#include <memory>
@@ -151,11 +150,11 @@ namespace zst
 	{
 		template <typename T> T min(T a, T b) { return a < b ? a : b;}
 
-		template <typename T, typename... Ts>
-		using is_same_as_any = std::disjunction<std::is_same<T, Ts>...>;
-
-		template <typename T, typename... Ts>
-		constexpr bool is_same_as_any_v = is_same_as_any<T, Ts...>::value;
+		template <typename T>
+		struct identity
+		{
+			using type = T;
+		};
 	}
 
 	namespace impl
@@ -180,7 +179,7 @@ namespace zst
 	inline uint16_t byteswap(uint16_t x)
 	{
 #if(_MSC_VER)
-		return _byteswap_ushort(x);
+		return _byteswap_ushort(value);
 #else
 		// Compiles to bswap since gcc 4.5.3 and clang 3.4.1
 		return (uint16_t) (((uint16_t) (x & 0x00ff) << 8) | ((uint16_t) (x & 0xff00) >> 8));
@@ -190,7 +189,7 @@ namespace zst
 	inline uint32_t byteswap(uint32_t x)
 	{
 #if(_MSC_VER)
-		return _byteswap_ulong(x);
+		return _byteswap_ulong(value);
 #else
 		// Compiles to bswap since gcc 4.5.3 and clang 3.4.1
 		return ((x & 0x000000ff) << 24) | ((x & 0x0000ff00) << 8) | ((x & 0x00ff0000) >> 8) | ((x & 0xff000000) >> 24);
@@ -209,6 +208,54 @@ namespace zst
 		     | ((value & 0x000000000000FF00u) << 40u) | ((value & 0x00000000000000FFu) << 56u);
 #endif
 	}
+
+
+	template <typename T>
+	constexpr std::remove_reference_t<T>&& move(T&& t) noexcept
+	{
+		return static_cast<std::remove_reference_t<T>&&>(t);
+	}
+
+	template <typename T>
+	T&& forward(typename std::remove_reference<T>::type& t)
+	{
+		return static_cast<typename zst::detail::identity<T>::type&&>(t);
+	}
+
+	template <typename T>
+	T&& forward(typename std::remove_reference<T>::type&& t)
+	{
+		return static_cast<typename zst::detail::identity<T>::type&&>(t);
+	}
+
+	template <typename T, typename U>
+	struct pair
+	{
+		pair() { }
+
+		template <typename T1, typename U1>
+		pair(T1&& t, U1&& u) : first(zst::forward<T>(t)), second(zst::forward<U>(u)) { }
+
+		T first;
+		U second;
+	};
+
+	template <typename T, typename U, typename V>
+	struct triple
+	{
+		triple() { }
+
+		template <typename T1, typename U1, typename V1>
+		triple(T1&& t, U1&& u, V1&& v) : first(zst::forward<T>(t)), second(zst::forward<U>(u)), third(zst::forward<V>(v)) { }
+
+		T first;
+		U second;
+		V third;
+	};
+
+
+
+
 
 	namespace impl
 	{
@@ -239,11 +286,12 @@ namespace zst
 			constexpr str_view(const value_type* p, size_t l) : ptr(p), len(l) { }
 
 			template <size_t N>
-			constexpr str_view(const value_type (&s)[N]) : ptr(s), len(N - (std::is_same_v<char, value_type> ? 1 : 0)) { }
+			constexpr str_view(const value_type (&s)[N]) : ptr(s), len(N - 1) { }
 
-			template <typename T, typename std::enable_if_t<
-				(std::is_same_v<value_type, char> || std::is_same_v<value_type, const char>) &&
-				(std::is_same_v<char*, T> || std::is_same_v<const char*, T>), int> = 0>
+			template <typename T, typename = std::enable_if_t<
+				std::is_same_v<char, value_type> &&
+				(std::is_same_v<char*, T> || std::is_same_v<const char*, T>)
+			>>
 			constexpr str_view(T s) : ptr(s), len(strlen(s)) { }
 
 			constexpr str_view(str_view&&) = default;
@@ -251,15 +299,16 @@ namespace zst
 			constexpr str_view& operator= (str_view&&) = default;
 			constexpr str_view& operator= (const str_view&) = default;
 
+			// whatever "equality_comparable" nonsense is broken
 			constexpr inline bool operator== (const value_type* other) const requires(std::same_as<value_type, char>) {
 				return *this == str_view(other);
 			}
 
+
 			constexpr inline bool operator== (const str_view& other) const
 			{
 				return (this->len == other.len) &&
-					(this->ptr == other.ptr || (memcmp(this->ptr, other.ptr, this->len * sizeof(CharType)) == 0)
-				);
+					(memcmp(this->ptr, other.ptr, this->len * sizeof(CharType)) == 0);
 			}
 
 			constexpr inline bool operator!= (const str_view& other) const
@@ -281,24 +330,24 @@ namespace zst
 				return str_view<uint8_t>(static_cast<const uint8_t*>(byte_ptr), this->len);
 			}
 
-			value_type front() const { return this->ptr[0]; }
-			value_type back() const { return this->ptr[this->len - 1]; }
+			constexpr value_type front() const { return this->ptr[0]; }
+			constexpr value_type back() const { return this->ptr[this->len - 1]; }
 
-			inline void clear() { this->ptr = 0; this->len = 0; }
+			constexpr inline void clear() { this->ptr = 0; this->len = 0; }
 
 			template <auto e = Endian, typename std::enable_if_t<e == impl::endian::native, int> = 0>
-			inline value_type operator[] (size_t n) const { return this->ptr[n]; }
+			constexpr inline value_type operator[] (size_t n) const { return this->ptr[n]; }
 
 			template <auto e = Endian, typename std::enable_if_t<
 				(e != impl::endian::native) && std::is_integral_v<value_type>,
 			int> = 0>
-			inline value_type operator[] (size_t n) const
+			constexpr inline value_type operator[] (size_t n) const
 			{
 				return zst::byteswap(this->ptr[n]);
 			}
 
-			inline size_t find(value_type c) const { return this->find(str_view(&c, 1)); }
-			inline size_t find(str_view sv) const
+			constexpr inline size_t find(value_type c) const { return this->find(str_view(&c, 1)); }
+			constexpr inline size_t find(str_view sv) const
 			{
 				if(sv.size() > this->size())
 					return static_cast<size_t>(-1);
@@ -315,8 +364,8 @@ namespace zst
 				return static_cast<size_t>(-1);
 			}
 
-			inline size_t rfind(value_type c) const { return this->rfind(str_view(&c, 1)); }
-			inline size_t rfind(str_view sv) const
+			constexpr inline size_t rfind(value_type c) const { return this->rfind(str_view(&c, 1)); }
+			constexpr inline size_t rfind(str_view sv) const
 			{
 				if(sv.size() > this->size())
 					return static_cast<size_t>(-1);
@@ -326,14 +375,14 @@ namespace zst
 
 				for(size_t i = 1 + this->size() - sv.size(); i-- > 0;)
 				{
-					if(this->take(1 + i).take_last(sv.size()) == sv)
+					if(this->drop(i).take(sv.size()) == sv)
 						return i;
 				}
 
 				return static_cast<size_t>(-1);
 			}
 
-			inline size_t find_first_of(str_view sv, size_t start = 0)
+			constexpr inline size_t find_first_of(str_view sv, size_t start = 0) const
 			{
 				for(size_t i = start; i < this->len; i++)
 				{
@@ -346,7 +395,7 @@ namespace zst
 				return static_cast<size_t>(-1);
 			}
 
-			inline size_t find_first_not_of(value_type k)
+			constexpr inline size_t find_first_not_of(value_type k) const
 			{
 				for(size_t i = 0; i < this->len; i++)
 				{
@@ -356,7 +405,7 @@ namespace zst
 				return static_cast<size_t>(-1);
 			}
 
-			[[nodiscard]] str_view trim_whitespace() const
+			[[nodiscard]] constexpr str_view trim_whitespace() const
 			{
 				auto copy = *this;
 				while(not copy.empty() && (copy[0] == value_type(' ') || copy[0] == value_type('\t') || copy[0] == value_type('\n') || copy[0] == value_type('\r')))
@@ -372,26 +421,26 @@ namespace zst
 				return copy;
 			}
 
-			[[nodiscard]] inline str_view drop(size_t n) const
+			[[nodiscard]] constexpr inline str_view drop(size_t n) const
 			{ return (this->size() >= n ? this->substr(n, this->size() - n) : str_view { }); }
 
-			[[nodiscard]] inline str_view take(size_t n) const
+			[[nodiscard]] constexpr inline str_view take(size_t n) const
 			{ return (this->size() >= n ? this->substr(0, n) : *this); }
 
-			[[nodiscard]] inline str_view take_last(size_t n) const
+			[[nodiscard]] constexpr inline str_view take_last(size_t n) const
 			{ return (this->size() >= n ? this->substr(this->size() - n, n) : *this); }
 
-			[[nodiscard]] inline str_view drop_last(size_t n) const
+			[[nodiscard]] constexpr inline str_view drop_last(size_t n) const
 			{ return (this->size() >= n ? this->substr(0, this->size() - n) : *this); }
 
-			[[nodiscard]] inline str_view substr(size_t pos = 0, size_t cnt = static_cast<size_t>(-1)) const
+			[[nodiscard]] constexpr inline str_view substr(size_t pos = 0, size_t cnt = static_cast<size_t>(-1)) const
 			{
 				return str_view(this->ptr + pos, cnt == static_cast<size_t>(-1)
 					? (this->len > pos ? this->len - pos : 0)
 					: cnt);
 			}
 
-			[[nodiscard]] inline str_view drop_until(value_type c) const
+			[[nodiscard]] constexpr inline str_view drop_until(value_type c) const
 			{
 				auto n = this->find(c);
 				if(n == size_t(-1))
@@ -399,7 +448,7 @@ namespace zst
 				return this->drop(n);
 			}
 
-			[[nodiscard]] inline str_view take_until(value_type c) const
+			[[nodiscard]] constexpr inline str_view take_until(value_type c) const
 			{
 				auto n = this->find(c);
 				if(n == size_t(-1))
@@ -407,23 +456,39 @@ namespace zst
 				return this->take(n);
 			}
 
-			inline bool starts_with(str_view sv) const { return this->take(sv.size()) == sv; }
-			inline bool ends_with(str_view sv) const   { return this->take_last(sv.size()) == sv; }
+			[[nodiscard]] constexpr inline str_view drop_until_not(value_type c) const
+			{
+				auto n = this->find_first_not_of(c);
+				if(n == size_t(-1))
+					return *this;
+				return this->drop(n);
+			}
 
-			inline bool starts_with(value_type c) const { return this->size() > 0 && this->take(1)[0] == c; }
-			inline bool ends_with(value_type c) const { return this->size() > 0 && this->take_last(1)[0] == c; }
+			[[nodiscard]] constexpr inline str_view take_until_not(value_type c) const
+			{
+				auto n = this->find_first_not_of(c);
+				if(n == size_t(-1))
+					return *this;
+				return this->take(n);
+			}
 
-			inline str_view& remove_prefix(size_t n) { return (*this = this->drop(n)); }
-			inline str_view& remove_suffix(size_t n) { return (*this = this->drop_last(n)); }
+			constexpr inline bool starts_with(str_view sv) const { return this->take(sv.size()) == sv; }
+			constexpr inline bool ends_with(str_view sv) const   { return this->take_last(sv.size()) == sv; }
 
-			[[nodiscard]] inline str_view take_prefix(size_t n)
+			constexpr inline bool starts_with(value_type c) const { return this->size() > 0 && this->take(1)[0] == c; }
+			constexpr inline bool ends_with(value_type c) const { return this->size() > 0 && this->take_last(1)[0] == c; }
+
+			constexpr inline str_view& remove_prefix(size_t n) { return (*this = this->drop(n)); }
+			constexpr inline str_view& remove_suffix(size_t n) { return (*this = this->drop_last(n)); }
+
+			[[nodiscard]] constexpr inline str_view take_prefix(size_t n)
 			{
 				auto ret = this->take(n);
 				this->remove_prefix(n);
 				return ret;
 			}
 
-			[[nodiscard]] inline str_view take_suffix(size_t n)
+			[[nodiscard]] constexpr inline str_view take_suffix(size_t n)
 			{
 				auto ret = this->take_last(n);
 				this->remove_suffix(n);
@@ -466,20 +531,20 @@ namespace zst
 			}
 
 		#if ZST_USE_STD
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && detail::is_same_as_any_v<T, char, char8_t, char16_t, char32_t>, int> = 0>
-			str_view(const std::basic_string<T>& s) : ptr(s.data()), len(s.size()) { }
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
+			str_view(const std::basic_string<value_type>& s) : ptr(s.data()), len(s.size()) { }
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && detail::is_same_as_any_v<T, char, char8_t, char16_t, char32_t>, int> = 0>
-			str_view(std::basic_string_view<T> sv) : ptr(sv.data()), len(sv.size()) { }
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
+			str_view(std::basic_string_view<value_type> sv) : ptr(sv.data()), len(sv.size()) { }
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && detail::is_same_as_any_v<T, char, char8_t, char16_t, char32_t>, int> = 0>
-			inline std::basic_string_view<T> sv() const
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
+			inline std::basic_string_view<value_type> sv() const
 			{
 				return std::basic_string_view<value_type>(this->data(), this->size());
 			}
 
-			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type> && detail::is_same_as_any_v<T, char, char8_t, char16_t, char32_t>, int> = 0>
-			inline std::basic_string<T> str() const
+			template <typename T = value_type, std::enable_if_t<std::is_trivial_v<T> && std::is_same_v<T, value_type>, int> = 0>
+			inline std::basic_string<value_type> str() const
 			{
 				return std::basic_string<value_type>(this->data(), this->size());
 			}
@@ -490,7 +555,7 @@ namespace zst
 		#if defined(ZPR_USE_STD) || defined(ZPR_FREESTANDING)
 
 			template <typename T = value_type, typename = typename std::enable_if_t<std::is_same_v<T, char>>>
-			operator zpr::tt::str_view() const
+			constexpr operator zpr::tt::str_view() const
 			{
 				return zpr::tt::str_view(this->ptr, this->len);
 			}
@@ -755,6 +820,198 @@ namespace zst
 }
 #endif
 
+
+namespace zst
+{
+	template <typename T>
+	struct CircularBuffer
+	{
+		constexpr CircularBuffer(T* buf, size_t n) noexcept
+		    : m_read(0), m_write(0), m_size(0), m_capacity(n), m_buffer(buf)
+		{
+		}
+
+		CircularBuffer(const CircularBuffer& other) = delete;
+		CircularBuffer& operator=(const CircularBuffer& other) = delete;
+
+		constexpr CircularBuffer(CircularBuffer&& other) noexcept
+		    : m_read(other.m_read)
+		    , m_write(other.m_write)
+		    , m_size(other.m_size)
+		    , m_capacity(other.m_capacity)
+		    , m_buffer(other.m_buffer)
+		{
+			other.m_read = 0;
+			other.m_write = 0;
+			other.m_size = 0;
+			other.m_buffer = 0;
+			other.m_capacity = 0;
+		}
+
+		constexpr CircularBuffer& operator=(CircularBuffer&& other) noexcept
+		{
+			m_read = other.m_read;
+			m_write = other.m_write;
+			m_size = other.m_size;
+			m_capacity = other.m_capacity;
+			m_buffer = other.m_buffer;
+
+			other.m_read = 0;
+			other.m_write = 0;
+			other.m_size = 0;
+			other.m_buffer = 0;
+			other.m_capacity = 0;
+		}
+
+		constexpr void clear() noexcept
+		{
+			m_read = 0;
+			m_write = 0;
+			m_size = 0;
+		}
+
+		constexpr bool full() const noexcept { return m_size == m_capacity; }
+		constexpr bool empty() const noexcept { return m_size > 0; }
+		constexpr size_t size() const noexcept { return m_size; }
+		constexpr size_t capacity() const noexcept { return m_capacity; }
+
+		constexpr const T& peek() const noexcept { return this->elem_at(0); }
+
+		constexpr T& last_written() noexcept { return (m_write > 0 ? m_buffer[m_write - 1] : m_buffer[m_capacity - 1]); }
+		constexpr const T& last_written() const noexcept { return (m_write > 0 ? m_buffer[m_write - 1] : m_buffer[m_capacity - 1]); }
+
+		constexpr T& operator[](size_t idx) noexcept { return this->elem_at(idx); }
+		constexpr const T& operator[](size_t idx) const noexcept { return this->elem_at(idx); }
+
+		constexpr void push(T value) noexcept
+		{
+			m_buffer[m_write] = std::move(value);
+			if(++m_write == m_capacity)
+				m_write = 0;
+
+			if(m_size < m_capacity)
+			{
+				m_size += 1;
+				return;
+			}
+
+			// we're full here; overwrite the last value, ie. advance the read pointer.
+			if(++m_read == m_capacity)
+				m_read = 0;
+		}
+
+		constexpr T pop() noexcept
+		{
+			auto ret = std::move(m_buffer[m_read]);
+			if(++m_read == m_capacity)
+				m_read = 0;
+
+			if(m_size > 0)
+				m_size -= 1;
+
+			return ret;
+		}
+
+		// LegacyBidirectionalIterator
+		template <bool IsConst>
+		struct Iterator
+		{
+			using value_type = T;
+			using difference_type = ptrdiff_t;
+			using pointer = std::conditional_t<IsConst, const T*, T*>;
+			using reference = std::conditional_t<IsConst, const T&, T&>;
+
+			constexpr Iterator(Iterator&&) = default;
+			constexpr Iterator(const Iterator&) = default;
+			constexpr Iterator& operator=(Iterator&&) = default;
+			constexpr Iterator& operator=(const Iterator&) = default;
+			constexpr bool operator==(const Iterator&) const = default;
+			constexpr bool operator!=(const Iterator&) const = default;
+
+			constexpr pointer operator->() const { return &**this; }
+			constexpr reference operator*() const { return m_container->elem_at(m_offset); }
+
+			constexpr Iterator& operator++()
+			{
+				m_offset += 1;
+				return *this;
+			}
+
+			constexpr Iterator operator++(int)
+			{
+				auto copy = *this;
+				++(*this);
+				return copy;
+			}
+
+			constexpr Iterator& operator--()
+			{
+				if(m_offset == 0)
+					m_offset = m_container->capacity() - 1;
+				else
+					m_offset -= 1;
+				return *this;
+			}
+
+			constexpr Iterator operator--(int)
+			{
+				auto copy = *this;
+				--(*this);
+				return copy;
+			}
+
+		private:
+			Iterator(std::conditional_t<IsConst, const CircularBuffer*, CircularBuffer*> container, size_t ofs)
+			    : m_container(container), m_offset(ofs)
+			{
+			}
+
+			std::conditional_t<IsConst, const CircularBuffer*, CircularBuffer*> m_container;
+			size_t m_offset;
+
+			friend CircularBuffer;
+		};
+
+		constexpr Iterator<true> cbegin() const { return Iterator<true>(this, 0); }
+		constexpr Iterator<true> begin() const { return Iterator<true>(this, 0); }
+		constexpr Iterator<false> begin() { return Iterator<false>(this, 0); }
+
+		constexpr Iterator<true> cend() const { return Iterator<true>(this, m_capacity); }
+		constexpr Iterator<true> end() const { return Iterator<true>(this, m_capacity); }
+		constexpr Iterator<false> end() { return Iterator<false>(this, m_capacity); }
+
+	private:
+		template <bool B>
+		friend struct Iterator;
+
+		const T& elem_at(size_t ofs) const noexcept
+		{
+			auto k = m_read + ofs;
+			while(k >= m_capacity)
+				k -= m_capacity;
+
+			return m_buffer[k];
+		}
+
+		T& elem_at(size_t ofs) noexcept
+		{
+			auto k = m_read + ofs;
+			while(k >= m_capacity)
+				k -= m_capacity;
+
+			return m_buffer[k];
+		}
+
+
+	private:
+		size_t m_read;
+		size_t m_write;
+
+		size_t m_size;
+		size_t m_capacity;
+		T* m_buffer;
+	};
+}
 
 
 namespace zst
@@ -1395,8 +1652,6 @@ namespace zst
 		Either(Right<T1>&& x) : Either(tag_right(), static_cast<T1&&>(x.m_value)) { }
 
 		Either(const Either& other)
-			requires(std::is_copy_constructible_v<LT>
-				  && std::is_copy_constructible_v<RT>)
 		{
 			m_state = other.m_state;
 			if(m_state == STATE_LEFT)  new(&m_left) LT(other.m_left);
@@ -1452,8 +1707,8 @@ namespace zst
 		LT take_left() { this->assert_is_left(); m_state = STATE_NONE; return static_cast<LT&&>(m_left); }
 		RT take_right() { this->assert_is_right(); m_state = STATE_NONE; return static_cast<RT&&>(m_right); }
 
-		const LT* maybe_left() const { if(this->is_left()) return &m_left; else return nullptr; }
-		const RT* maybe_right() const { if(this->is_right()) return &m_right; else return nullptr; }
+		const LT* maybe_left() const { if(m_state == STATE_LEFT) return &m_left; return nullptr; }
+		const RT* maybe_right() const { if(m_state == STATE_RIGHT) return &m_right; return nullptr; }
 
 	private:
 		inline void assert_is_left() const
@@ -1503,8 +1758,16 @@ namespace zst
 		[[noreturn]] void error_wrapper(const char* fmt, Args&&... args)
 		{
 			char buf[1024] { };
-			auto n = zpr::sprint(1024, buf, fmt, static_cast<Args&&>(args)...);
-			zst::error_and_exit(buf, n);
+			if constexpr(std::conjunction_v<zpr::detail::has_formatter<Args>...>)
+			{
+				auto n = zpr::sprint(1024, buf, fmt, static_cast<Args&&>(args)...);
+				zst::error_and_exit(buf, n);
+			}
+			else
+			{
+				auto n = zpr::sprint(1024, buf, "{}", fmt);
+				zst::error_and_exit(buf, n);
+			}
 		}
 	}
 }
@@ -1591,34 +1854,26 @@ constexpr inline zst::byte_span operator""_bs(const char* s, size_t n)
     Version History
     ===============
 
-    2.0.6 - 26/02/2025
+    2.2.1 - 17/08/2025
     ------------------
-    - Fix compile on windows/msvc
+    - fix broken str_view::rfind() implementation
+    - made more functions constexpr
 
 
-    2.0.5 - 26/02/2025
+
+    2.2.0 - 10/08/2025
     ------------------
-    - Check for is_copy_constructible<LT/RT> for Either copy constructor
+    - add zst::move and zst::forward stl replacements because they are not
+      freestanding for some silly reason
+    - fix unwrap() forcefully trying to print the type even if it's not printable
 
 
-    2.0.4 - 06/02/2025
+
+    2.1.0 - 07/02/2024
     ------------------
-    - Fix more str_view brokenness
+    - add `drop_until_not` and `take_until_not` to str_view
+    - add circular_buffer
 
-
-    2.0.3 - 04/02/2025
-    ------------------
-    - Fix Wparentheses warning
-
-
-    2.0.2 - 24/12/2024
-    ------------------
-    - Fix erroneous N-1 length accounting for reference-to-array constructor for str_view for non-char cases
-
-
-    2.0.1 - 31/07/2023
-    ------------------
-    - Add missing <vector> include
 
 
     2.0.0 - 26/04/2023
