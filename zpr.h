@@ -1,6 +1,6 @@
 /*
     zpr.h
-    Copyright 2020 - 2024, yuki / zhiayang
+    Copyright 2020 - 2025, yuki
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@
 */
 
 /*
-    Version 2.8.2
+    Version 2.8.3
     =============
 
 
@@ -705,7 +705,7 @@ namespace zpr
 			else                        string_length = static_cast<int64_t>(len);
 
 			size_t ret = static_cast<size_t>(string_length);
-			auto padding_width = args.width - string_length;
+			int64_t padding_width = args.width - string_length;
 
 			if(args.positive_width() && padding_width > 0)
 			{
@@ -2198,7 +2198,7 @@ namespace zpr
 
 				detail::print_erased<decltype(printer1), _Types&&...>(printer1, fwd.fmt, &fwd.values[0], fwd.num_values);
 
-				auto padding_width = static_cast<size_t>(args.width) - string_length;
+				int64_t padding_width = args.width - static_cast<int64_t>(string_length);
 
 				if(args.positive_width() && padding_width > 0)
 					cb(args.zero_pad() ? '0' : ' ', static_cast<size_t>(padding_width));
@@ -2428,7 +2428,17 @@ namespace zpr
 		template <typename _Cb>
 		ZPR_ALWAYS_INLINE void print(const char (&x)[_Count], _Cb&& cb, format_args args)
 		{
-			detail::print_string(static_cast<_Cb&&>(cb), x, strlen(x), static_cast<format_args&&>(args));
+			detail::print_string(static_cast<_Cb&&>(cb), static_cast<const char*>(x), strlen(x), static_cast<format_args&&>(args));
+		}
+	};
+
+	template <size_t _Count>
+	struct print_formatter<char (&)[_Count]>
+	{
+		template <typename _Cb>
+		ZPR_ALWAYS_INLINE void print(char (&x)[_Count], _Cb&& cb, format_args args)
+		{
+			detail::print_string(static_cast<_Cb&&>(cb), static_cast<char*>(x), strlen(x), static_cast<format_args&&>(args));
 		}
 	};
 
@@ -2775,6 +2785,12 @@ namespace zpr
 
     Version History
     ===============
+
+    2.8.3 - 18/07/2025
+    ------------------
+    - Fix overflow when given string is greater than specified width
+    - Print non-const char arrays as strings
+
 
     2.8.2 - 13/02/2025
     ------------------
