@@ -16,7 +16,7 @@
 */
 
 /*
-    Version 2.2.1
+    Version 2.2.2
     =============
 
 
@@ -1255,10 +1255,10 @@ namespace zst
 		}
 
 		template <typename T1 = T>
-		Result(Ok<T1>&& ok_) : Result(tag_ok(), static_cast<T1&&>(ok_.m_value)) { }
+		Result(Ok<T1>&& ok_) : Result(tag_ok(), static_cast<T&&>(ok_.m_value)) { }
 
 		template <typename E1 = E>
-		Result(Err<E1>&& err_) : Result(tag_err(), static_cast<E1&&>(err_.m_error)) { }
+		Result(Err<E1>&& err_) : Result(tag_err(), static_cast<E&&>(err_.m_error)) { }
 
 		Result(const Result& other)
 		{
@@ -1853,6 +1853,12 @@ constexpr inline zst::byte_span operator""_bs(const char* s, size_t n)
 /*
     Version History
     ===============
+
+    2.2.2 - 26/01/2026
+    ------------------
+    - fix Result constructor complaining about conversions
+
+
 
     2.2.1 - 17/08/2025
     ------------------
