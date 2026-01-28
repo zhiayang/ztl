@@ -16,7 +16,7 @@
 */
 
 /*
-    Version 2.2.2
+    Version 2.2.3
     =============
 
 
@@ -1254,11 +1254,18 @@ namespace zst
 			if(state == STATE_ERR) this->err.~E();
 		}
 
-		template <typename T1 = T>
+		template <typename T1 = T> requires(not std::is_const_v<T1>)
 		Result(Ok<T1>&& ok_) : Result(tag_ok(), static_cast<T&&>(ok_.m_value)) { }
 
-		template <typename E1 = E>
+		template <typename E1 = E> requires(not std::is_const_v<E1>)
 		Result(Err<E1>&& err_) : Result(tag_err(), static_cast<E&&>(err_.m_error)) { }
+
+		template <typename T1 = T> requires(std::is_const_v<T1>)
+		Result(Ok<T1>&& ok_) : Result(tag_ok(), ok_.m_value) { }
+
+		template <typename E1 = E> requires(std::is_const_v<E1>)
+		Result(Err<E1>&& err_) : Result(tag_err(), err_.m_error) { }
+
 
 		Result(const Result& other)
 		{
@@ -1853,6 +1860,12 @@ constexpr inline zst::byte_span operator""_bs(const char* s, size_t n)
 /*
     Version History
     ===============
+
+    2.2.3 - 28/01/2026
+    ------------------
+    - fix Result constructor in cases where Ok(...) or Err(...) contains a const value.
+
+
 
     2.2.2 - 26/01/2026
     ------------------
